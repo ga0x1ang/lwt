@@ -2,9 +2,10 @@
 .align 16
 .global __lwt_trampoline
 __lwt_trampoline:
-        push %ebp
+        pushl %ebp
         movl %esp, %ebp
-        push $999
+        pushl %ecx
+        pushl %eax /* TODO: ecx better? */
         call __lwt_start
         leave
         ret
