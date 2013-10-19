@@ -13,11 +13,12 @@ typedef enum {
         RUNNING,
         DEAD,
         BLOCKED,
-        FINISHED
+        FINISHED,
+        JOINED
 } lwt_state;
 
 typedef struct lwt {
-        unsigned long id, sp;
+        unsigned long id, sp, ip;
         lwt_state state;
         void *ret;
 } *lwt_t; 

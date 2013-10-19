@@ -15,8 +15,6 @@ __attribute__((constructor))
 static void
 lwt_init(void)
 {
-        printf("lwt lib loaded!\n");
-        
         /* construct tcb */
         lwt_t master = malloc(sizeof(struct lwt));
         master->id = gen_id();
@@ -38,8 +36,9 @@ lwt_init(void)
 void
 lwt_enqueue(lwt_node_t node)
 {
-        if (run_queue->head == NULL) run_queue->head = node;
+        if (run_queue->head == NULL) run_queue->head = run_queue->tail = node;
         else {
+                assert(run_queue->tail);
                 run_queue->tail->next = node;
                 run_queue->tail = node;
         }
@@ -77,7 +76,6 @@ lwt_create(lwt_fn_t fn, void *data)
          */
         __asm__ __volatile__("movl %%esp, %0\n\t" /* save current esp */
                              "movl %2, %%esp\n\t" /* switch to new stack */
-                             "pushl $0x888\n\t"
                              "pushl $__lwt_trampoline\n\t"
                              "movl %%esp, %1\n\t"
                              "pushl %3\n\t" /* eax and  ecx are used to store*/
@@ -113,7 +111,7 @@ void
 lwt_die(void *ret)
 {
         lwt_node_t curr = lwt_current();
-        curr->data->state = DEAD;  /* TODO: or moved to free list ? */
+        curr->data->state = JOINED;  /* TODO: or moved to free list ? */
         curr->data->ret = ret;
 
         return;
@@ -123,7 +121,8 @@ void *
 lwt_join(lwt_t child)
 {
         void *ret = NULL;
-        if (child->state == FINISHED) ret = child->ret;
+        if (child->state == JOINED) ret = child->ret;
+        else __lwt_schedule();
 
         return ret;
 }
@@ -135,24 +134,35 @@ lwt_yield(lwt_t next)
         return 0;
 }
 
+/*
 void
 __lwt_start(lwt_fn_t fn, void *data)
 {
-        lwt_die(fn(data));  /* TODO: is this sytle good or even correct? */ 
+        void *ret = fn(data);
+        printf("get value: %d\n", (int)ret);
+        lwt_t curr = lwt_current()->data;
+
+        assert(curr->state == JOINED);
 
         return;
 }
+*/
 
 
 void
 __lwt_dispatch(lwt_t next, lwt_t curr)
 {
-        __asm__ __volatile__("pushal\n\t"
+        __asm__ __volatile__("movl $1f, %1\n\t"
+                             "pushl $1f\n\t"
+                             "pushal\n\t"
                              "movl %%esp, %0\n\t"
-                             "movl %1, %%esp\n\t"
+                             "movl %2, %%esp\n\t"
                              "popal\n\t"
-                             "ret\n\t"
-                             : "=m" (curr->sp) : "m" (next->sp) : "esp");
+                             "pushl %1\n\t"//"ret\n\t"
+                             "1:\t"
+                             : "=m" (curr->sp), "=m" (curr->ip)
+                             : "m" (next->sp)
+                             : "esp");
 
         return;
 }
@@ -161,12 +171,12 @@ void
 __lwt_schedule(void)
 {
         lwt_node_t next = lwt_dequeue();
-        printf("schedule to thread %lu\n", next->data->id);
         lwt_node_t curr = lwt_current();
-        printf("current thread %lu\n", curr->data->id);
+        printf("schedule from thread %lu to thread %lu\n", curr->data->id, next->data->id);
         if (next) {
                 active_thread = next;
-                lwt_enqueue(curr);
+                if (curr->data->state != JOINED) lwt_enqueue(curr);
+                __lwt_dispatch(next->data, curr->data);
         }
         return;
 }
