@@ -27,7 +27,7 @@ lwt_init(void)
 
         /* init the run queue */
         run_queue = malloc(sizeof(struct lwt_queue));
-        run_queue->head = NULL;
+        run_queue->head = run_queue->tail = NULL;
         active_thread = master_node;
 
         return;
@@ -38,7 +38,6 @@ lwt_enqueue(lwt_node_t node)
 {
         if (run_queue->head == NULL) run_queue->head = run_queue->tail = node;
         else {
-                assert(run_queue->tail);
                 run_queue->tail->next = node;
                 run_queue->tail = node;
         }
@@ -49,10 +48,10 @@ lwt_node_t
 lwt_dequeue()
 {
         lwt_node_t node = NULL;
-        if (run_queue->head != NULL) {
+        //if (run_queue->head != NULL) {
                 node = run_queue->head;
-                run_queue->head = run_queue->head->next;
-        }
+                run_queue->head = node->next;
+        //}
         return node;
 }
 
@@ -130,24 +129,10 @@ lwt_join(lwt_t child)
 int
 lwt_yield(lwt_t next)
 {
-        if (next == NULL) __lwt_schedule();
+        if (run_queue->head == NULL) return;
+        __lwt_schedule();
         return 0;
 }
-
-/*
-void
-__lwt_start(lwt_fn_t fn, void *data)
-{
-        void *ret = fn(data);
-        printf("get value: %d\n", (int)ret);
-        lwt_t curr = lwt_current()->data;
-
-        assert(curr->state == JOINED);
-
-        return;
-}
-*/
-
 
 void
 __lwt_dispatch(lwt_t next, lwt_t curr)
@@ -158,7 +143,7 @@ __lwt_dispatch(lwt_t next, lwt_t curr)
                              "movl %%esp, %0\n\t"
                              "movl %2, %%esp\n\t"
                              "popal\n\t"
-                             "pushl %1\n\t"//"ret\n\t"
+                             "pushl %1\n\t"
                              "1:\t"
                              : "=m" (curr->sp), "=m" (curr->ip)
                              : "m" (next->sp)
@@ -170,13 +155,12 @@ __lwt_dispatch(lwt_t next, lwt_t curr)
 void
 __lwt_schedule(void)
 {
-        lwt_node_t next = lwt_dequeue();
         lwt_node_t curr = lwt_current();
+        if (curr->data->state != JOINED) lwt_enqueue(curr);
+        lwt_node_t next = lwt_dequeue();
         printf("schedule from thread %lu to thread %lu\n", curr->data->id, next->data->id);
-        if (next) {
-                active_thread = next;
-                if (curr->data->state != JOINED) lwt_enqueue(curr);
-                __lwt_dispatch(next->data, curr->data);
-        }
+        if (next->data->state == JOINED) return;
+        active_thread = next;
+        __lwt_dispatch(next->data, curr->data);
         return;
 }
