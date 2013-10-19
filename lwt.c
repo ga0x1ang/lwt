@@ -1,22 +1,21 @@
 #include "lwt.h"
 
 lwt_queue_t run_queue;
-lwt_t curr;
+lwt_t active_thread;
 unsigned long thd_counter;
 
-static inline unsigned long 
-gen_id(void) { return ++thd_counter; }
-
-static inline lwt_t
-get_curr(void) { return curr; }
+inline unsigned long 
+gen_id(void)
+{
+        thd_counter++;
+        return thd_counter;
+}
 
 __attribute__((constructor))
 static void
 lwt_init(void)
 {
         printf("lwt lib loaded!\n");
-        /* init the run queue */
-        run_queue = malloc(sizeof(struct lwt_queue));
         
         /* construct tcb */
         lwt_t master = malloc(sizeof(struct lwt));
@@ -27,7 +26,11 @@ lwt_init(void)
         lwt_node_t master_node = malloc(sizeof(struct lwt_node));
         master_node->data = master;
         master_node->next = NULL;
-        curr = master;
+
+        /* init the run queue */
+        run_queue = malloc(sizeof(struct lwt_queue));
+        run_queue->head = NULL;
+        active_thread = master;
 
         return;
 }
@@ -35,22 +38,21 @@ lwt_init(void)
 void
 lwt_enqueue(lwt_node_t node)
 {
-        if (run_queue->tail == NULL) {
-                run_queue->head = run_queue->tail = node;
-                return;
+        if (run_queue->head == NULL) run_queue->head = node;
+        else {
+                run_queue->tail->next = node;
+                run_queue->tail = node;
         }
-        run_queue->tail->next = node;
-        run_queue->tail = node;
         return;
 }
 
 lwt_node_t
-lwt_dequeue(lwt_queue_t q)
+lwt_dequeue()
 {
         lwt_node_t node = NULL;
-        if (q->head != NULL) {
-                node = q->head;
-                q->head = q->head->next;
+        if (run_queue->head != NULL) {
+                node = run_queue->head;
+                run_queue->head = run_queue->head->next;
         }
         return node;
 }
@@ -65,19 +67,20 @@ lwt_create(lwt_fn_t fn, void *data)
 
         /* 2. set up the stack */
         /* stack bottom: data, fn, _trampoline, 0, 0, 0, 0, sp, bp, 0, 0 */
+        thd->id = gen_id();
         thd->sp = (unsigned long)malloc(STACK_SIZE) + STACK_SIZE;
-        unsigned long current_sp, restored_sp = thd->sp - 4;
-
-        printf("fn: %p, data: %p\n", fn, data);
+        unsigned long current_sp, restored_sp;
+        thd->ret = NULL;
 
         /**
          * save current esp and switch to the stack we are going to construct 
          */
         __asm__ __volatile__("movl %%esp, %0\n\t" /* save current esp */
-                             "movl %1, %%esp\n\t" /* switch to new stack */
+                             "movl %2, %%esp\n\t" /* switch to new stack */
                              "pushl $0x888\n\t"
                              "pushl $__lwt_trampoline\n\t"
-                             "pushl %3\n\t" /* eax and  ebx are used to store*/
+                             "movl %%esp, %1\n\t"
+                             "pushl %3\n\t" /* eax and  ecx are used to store*/
                              "pushl %4\n\t" /* args passed to __lwt_start */
                              "pushl $0\n\t"
                              "pushl $0\n\t"
@@ -87,31 +90,49 @@ lwt_create(lwt_fn_t fn, void *data)
                              "pushl $0\n\t"
                              "movl %%esp, %2\n\t"
                              "movl %0, %%esp"
-                             : "=m" (current_sp)
-                             : "m" (restored_sp), "m" (thd->sp), "m" (fn), "m" (data)
+                             : "=m" (current_sp), "=m" (restored_sp)
+                             : "m" (thd->sp), "m" (fn), "m" (data)
                              : "esp");
 
         /* 3. add to run queue */
-        //lwt_node_t node = malloc(sizeof(struct lwt_node));
-        //node->data = thd;
-        //node->next = NULL;
-        //lwt_enqueue(node);
+        lwt_node_t node = malloc(sizeof(struct lwt_node));
+        node->data = thd;
+        node->next = NULL;
+        lwt_enqueue(node);
 
         return thd;
 }
 
-inline lwt_t
+lwt_t
 lwt_current(void)
 {
-        return curr;
+        return active_thread;
 }
 
 void
 lwt_die(void *ret)
 {
         lwt_t curr = lwt_current();
-        curr->state = DEAD;
+        curr->state = DEAD;  /* TODO: or moved to free list ? */
+        curr->ret = ret;
 
+        return;
+}
+
+void *
+lwt_join(lwt_t child)
+{
+        void *ret = NULL;
+        if (child->state == FINISHED) ret = child->ret;
+
+        return ret;
+}
+
+int
+lwt_yield(lwt_t next)
+{
+        if (next == NULL) __lwt_schedule();
+        return 0;
 }
 
 void
@@ -126,6 +147,7 @@ __lwt_start(lwt_fn_t fn, void *data)
 void
 __lwt_dispatch(lwt_t next, lwt_t curr)
 {
+        active_thread = next;
         __asm__ __volatile__("pushal\n\t"
                              "movl %%esp, %0\n\t"
                              "movl %1, %%esp\n\t"
@@ -136,3 +158,13 @@ __lwt_dispatch(lwt_t next, lwt_t curr)
         return;
 }
 
+void
+__lwt_schedule(void)
+{
+        lwt_node_t next = lwt_dequeue();
+        printf("schedule to thread %d\n", next->data->id);
+        lwt_t curr = lwt_current();
+        printf("current thread %d\n", curr->id);
+        if (next) { __lwt_dispatch(next->data, curr); }
+        return;
+}
