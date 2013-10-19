@@ -1,7 +1,7 @@
 #include "lwt.h"
 
 lwt_queue_t run_queue;
-lwt_t active_thread;
+lwt_node_t active_thread;
 unsigned long thd_counter;
 
 inline unsigned long 
@@ -30,7 +30,7 @@ lwt_init(void)
         /* init the run queue */
         run_queue = malloc(sizeof(struct lwt_queue));
         run_queue->head = NULL;
-        active_thread = master;
+        active_thread = master_node;
 
         return;
 }
@@ -103,7 +103,7 @@ lwt_create(lwt_fn_t fn, void *data)
         return thd;
 }
 
-lwt_t
+lwt_node_t
 lwt_current(void)
 {
         return active_thread;
@@ -112,9 +112,9 @@ lwt_current(void)
 void
 lwt_die(void *ret)
 {
-        lwt_t curr = lwt_current();
-        curr->state = DEAD;  /* TODO: or moved to free list ? */
-        curr->ret = ret;
+        lwt_node_t curr = lwt_current();
+        curr->data->state = DEAD;  /* TODO: or moved to free list ? */
+        curr->data->ret = ret;
 
         return;
 }
@@ -147,7 +147,6 @@ __lwt_start(lwt_fn_t fn, void *data)
 void
 __lwt_dispatch(lwt_t next, lwt_t curr)
 {
-        active_thread = next;
         __asm__ __volatile__("pushal\n\t"
                              "movl %%esp, %0\n\t"
                              "movl %1, %%esp\n\t"
@@ -162,9 +161,12 @@ void
 __lwt_schedule(void)
 {
         lwt_node_t next = lwt_dequeue();
-        printf("schedule to thread %d\n", next->data->id);
-        lwt_t curr = lwt_current();
-        printf("current thread %d\n", curr->id);
-        if (next) { __lwt_dispatch(next->data, curr); }
+        printf("schedule to thread %lu\n", next->data->id);
+        lwt_node_t curr = lwt_current();
+        printf("current thread %lu\n", curr->data->id);
+        if (next) {
+                active_thread = next;
+                lwt_enqueue(curr);
+        }
         return;
 }
