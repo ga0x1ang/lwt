@@ -66,6 +66,7 @@ lwt_create(lwt_fn_t fn, void *data)
         /* 2. set up the stack */
         /* stack bottom: data, fn, _trampoline, 0, 0, 0, 0, sp, bp, 0, 0 */
         thd->id = gen_id();
+        printf("creating thread %lu\n", thd->id);
         thd->sp = (unsigned long)malloc(STACK_SIZE) + STACK_SIZE;
         unsigned long current_sp, restored_sp;
         thd->ret = NULL;
@@ -119,11 +120,14 @@ lwt_die(void *ret)
 void *
 lwt_join(lwt_t child)
 {
-        void *ret = NULL;
-        if (child->state == JOINED) ret = child->ret;
-        else __lwt_schedule();
+        while (child->state != JOINED) {
+                printf("waiting for thread %lu to finish ...\n", child->id);
+                __lwt_schedule();
+        }
 
-        return ret;
+        printf ("get return value from thread %lu: %s\n", child->id, (char *)child->ret);
+
+        return child->ret;
 }
 
 int

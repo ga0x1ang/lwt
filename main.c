@@ -5,22 +5,9 @@ void *test_func(void *data);
 int
 main(void)
 {
-        lwt_t thd1 = lwt_create(test_func, "634");
-        lwt_t thd2 = lwt_create(test_func, "abc");
+        lwt_t thd = lwt_create(test_func, "child");
         lwt_yield(NULL);
-        printf("i'm back\n");
-        lwt_yield(NULL);
-        printf("recieved return value %d\n", (int)lwt_join(thd1));
-        printf("recieved return value %d\n", (int)lwt_join(thd2));
-        printf("hooray!\n");
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-        lwt_yield(NULL);
-
+        lwt_join(thd);
 
         return 0;
 }
@@ -28,12 +15,13 @@ main(void)
 void *
 test_func(void *data)
 {
-        lwt_node_t curr = lwt_current();
-        printf("i'm thread %lu\n", curr->data->id);
-        lwt_yield(NULL);
-        printf("test func called: %s\n", (char *)data);
-        void *ret = (void *)634;
-        lwt_die(ret);
+        printf("thread %lu begin to run\n", active_thread->data->id);
+        if (thd_counter <=10 ) {
+                lwt_t thd = lwt_create(test_func, "sub-child");
+                lwt_yield(NULL);
+                lwt_join(thd);
+        }
+        lwt_die(data);
 
-        return ret;
+        return data;
 }
