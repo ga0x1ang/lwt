@@ -4,7 +4,7 @@
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
 
-//#define printf(...)  
+#define printf(...)  
 
 lwt_queue_t run_queue;
 lwt_node_t active_thread;
@@ -61,8 +61,10 @@ __lwt_schedule(void)
         if (run_queue->head == NULL) return;
         lwt_node_t next = lwt_dequeue();
         lwt_node_t curr = lwt_current();
+        curr->next = NULL;
         if (curr->data->state != ZOMBIE) lwt_enqueue(curr);
         printf("schedule from thread %lu to thread %lu\n", curr->data->id, next->data->id);
+        printf("curr->state is %d\n", curr->data->state);
         active_thread = next;
         __lwt_dispatch(next->data, curr->data);
 
@@ -72,9 +74,8 @@ __lwt_schedule(void)
 void
 lwt_enqueue(lwt_node_t node)
 {
-        if (unlikely(run_queue->head == NULL)) run_queue->head = run_queue->tail = node;
+        if (unlikely(run_queue->tail == NULL)) run_queue->head = run_queue->tail = node;
         else {
-                printf("append %lu to %lu\n", node->data->id, run_queue->tail->data->id);
                 run_queue->tail->next = node;
                 run_queue->tail = node;
         }
@@ -86,8 +87,10 @@ lwt_dequeue()
 {
         lwt_node_t node = NULL;
         if (likely(run_queue->head != NULL)) {
+                //printf("thread %lu dequeued, run_queue->head = %lu\n", node->data->id, run_queue->head->data->id);
                 node = run_queue->head;
                 run_queue->head = node->next;
+                if (run_queue->tail == node) run_queue->tail = NULL;
         }
         return node;
 }
@@ -145,15 +148,13 @@ lwt_create(lwt_fn_t fn, void *data)
 int
 lwt_yield(lwt_t next)
 {
-        if (next != LWT_NULL) {
+        if (unlikely(next != LWT_NULL)) {
                 while (run_queue->head->data != next) {
                         lwt_node_t requeue = lwt_dequeue();
                         lwt_enqueue(requeue);
                 }
                 __lwt_schedule();
-        }
-
-        if (likely(run_queue->head != NULL)) __lwt_schedule();
+        } else if (likely(run_queue->head != NULL)) __lwt_schedule();
 
         return 0;
 }
@@ -164,7 +165,7 @@ lwt_join(lwt_t child)
         lwt_node_t curr = lwt_current();
         if (child->parent != curr->data) {
                 printf("can only join by parent !!!\n");
-                __lwt_schedule();
+                return NULL;
         }
         curr->data->state = BLOCKED;
         n_blocked++;
@@ -195,6 +196,8 @@ lwt_die(void *ret)
         n_runnable--;
         n_zombies++;
         curr->data->ret = ret;
+
+        __lwt_schedule();
 
         return;
 }

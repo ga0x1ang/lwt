@@ -16,5 +16,5 @@ __lwt_start_broken:
         pushl 8(%ebp)
         call *4(%ebp)
         pushl %eax
-        call lwt_die
-        jmp __lwt_schedule
+        pushl $0
+        jmp lwt_die
