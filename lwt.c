@@ -9,14 +9,14 @@
 lwt_queue_t run_queue;
 lwt_node_t active_thread;
 unsigned long id_counter;
-
-unsigned long n_runnable = 0, n_blocked = 0, n_zombies = 0;
+unsigned long n_runnable, n_blocked, n_zombies;
 
 __attribute__((constructor))
 static void
 lwt_init(void)
 {
         id_counter = 0;
+        n_runnable = 0, n_blocked = 0, n_zombies = 0;
         /* construct tcb */
         lwt_t master = malloc(sizeof(struct lwt));
         master->id = gen_id();
@@ -43,14 +43,13 @@ __lwt_dispatch(lwt_t next, lwt_t curr)
         __asm__ __volatile__("pushl $1f\n\t"
                              "pushal\n\t"
                              "movl %%esp, %0\n\t"
-                             "movl %2, %%esp\n\t"
+                             "movl %1, %%esp\n\t"
                              "popal\n\t"
                              "ret\n\t"
                              "1:\t"
-                             : "=m" (curr->sp), "=m" (curr->ip)
+                             : "=m" (curr->sp)
                              : "m" (next->sp)
                              : "esp");
-                             
 
         return;
 }
@@ -87,7 +86,6 @@ lwt_dequeue()
 {
         lwt_node_t node = NULL;
         if (likely(run_queue->head != NULL)) {
-                //printf("thread %lu dequeued, run_queue->head = %lu\n", node->data->id, run_queue->head->data->id);
                 node = run_queue->head;
                 run_queue->head = node->next;
                 if (run_queue->tail == node) run_queue->tail = NULL;
@@ -132,8 +130,8 @@ lwt_create(lwt_fn_t fn, void *data)
                              "pushl $0\n\t"
                              "movl %%esp, %2\n\t"
                              "movl %0, %%esp"
-                             : "=g" (current_sp), "=g" (restored_sp)
-                             : "m" (thd->sp), "g" (fn), "g" (data)
+                             : "=m" (current_sp), "=m" (restored_sp)
+                             : "m" (thd->sp), "m" (fn), "m" (data)
                              : "esp");
 
         /* 3. add to run queue */
@@ -192,10 +190,11 @@ lwt_die(void *ret)
 {
         lwt_node_t curr = lwt_current();
         printf("thread %lu died\n", curr->data->id);
+        curr->data->ret = ret;
+
         curr->data->state = ZOMBIE;
         n_runnable--;
         n_zombies++;
-        curr->data->ret = ret;
 
         __lwt_schedule();
 

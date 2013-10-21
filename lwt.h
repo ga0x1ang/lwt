@@ -11,7 +11,6 @@
 typedef void *(*lwt_fn_t)(void *);
 typedef void *lwt_ret; /* for aesthetic, look at the api function definitions at bottom */ 
 extern unsigned long id_counter;
-extern unsigned long n_runnable, n_zombies, n_blocked;
 
 typedef enum {
         LWT_INFO_NTHD_RUNNABLE,
