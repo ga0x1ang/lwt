@@ -1,18 +1,21 @@
 #include "lwt.h"
 
-#define gen_id()        ++id_counter
-#define likely(x)       __builtin_expect((x),1)
-#define unlikely(x)     __builtin_expect((x),0)
-
+/*#define likely(x)       __builtin_expect((x),1)*/
+/*#define unlikely(x)     __builtin_expect((x),0)*/
+#define likely(x)       x
+#define unlikely(x)     x
 #define printf(...)  
+
+#define gen_id()        ++id_counter
+
+extern void __lwt_trampoline(void);
 
 lwt_queue_t run_queue;
 lwt_node_t active_thread;
 unsigned long id_counter;
 unsigned long n_runnable, n_blocked, n_zombies;
 
-__attribute__((constructor))
-static void
+__attribute__((constructor)) static void
 lwt_init(void)
 {
         id_counter = 0;
@@ -37,7 +40,7 @@ lwt_init(void)
         return;
 }
 
-void
+static inline void
 __lwt_dispatch(lwt_t next, lwt_t curr)
 {
         __asm__ __volatile__("pushl $1f\n\t"
@@ -48,13 +51,13 @@ __lwt_dispatch(lwt_t next, lwt_t curr)
                              "ret\n\t"
                              "1:\t"
                              : "=m" (curr->sp)
-                             : "m" (next->sp)
+                             : "g" (next->sp)
                              : "esp");
 
         return;
 }
 
-inline void
+static inline void
 __lwt_schedule(void)
 {
         if (run_queue->head == NULL) return;
@@ -70,7 +73,7 @@ __lwt_schedule(void)
         return;
 }
 
-void
+inline void
 lwt_enqueue(lwt_node_t node)
 {
         if (unlikely(run_queue->tail == NULL)) run_queue->head = run_queue->tail = node;
@@ -81,7 +84,7 @@ lwt_enqueue(lwt_node_t node)
         return;
 }
 
-lwt_node_t
+inline lwt_node_t
 lwt_dequeue()
 {
         lwt_node_t node = NULL;
@@ -93,19 +96,18 @@ lwt_dequeue()
         return node;
 }
 
-extern void __lwt_trampoline(void);
 
-lwt_t
+inline lwt_t
 lwt_create(lwt_fn_t fn, void *data)
 {
         /* 1. allocate memory for thread */
-        lwt_t thd = calloc(1, sizeof(struct lwt));
+        lwt_t thd = malloc(sizeof(struct lwt));
 
         /* 2. set up the stack */
         /* stack bottom: data, fn, _trampoline, 0, 0, 0, 0, sp, bp, 0, 0 */
         thd->id = gen_id();
         printf("thread %lu created thread %lu\n", lwt_current()->data->id, thd->id);
-        thd->mem_space = calloc(1, STACK_SIZE);
+        thd->mem_space = malloc(STACK_SIZE);
         thd->sp = (unsigned long)thd->mem_space + STACK_SIZE;
         thd->ret = NULL;
         thd->state = RUNNABLE;
@@ -130,12 +132,12 @@ lwt_create(lwt_fn_t fn, void *data)
                              "pushl $0\n\t"
                              "movl %%esp, %2\n\t"
                              "movl %0, %%esp"
-                             : "=m" (current_sp), "=m" (restored_sp)
-                             : "m" (thd->sp), "m" (fn), "m" (data)
+                             : "=g" (current_sp), "=g" (restored_sp)
+                             : "m" (thd->sp), "g" (fn), "g" (data)
                              : "esp");
 
         /* 3. add to run queue */
-        lwt_node_t node = calloc(1, sizeof(struct lwt_node));
+        lwt_node_t node = malloc(sizeof(struct lwt_node));
         node->data = thd;
         node->next = NULL;
         lwt_enqueue(node);
@@ -143,7 +145,7 @@ lwt_create(lwt_fn_t fn, void *data)
         return thd;
 }
 
-int
+inline int
 lwt_yield(lwt_t next)
 {
         if (unlikely(next != LWT_NULL)) {
@@ -157,11 +159,11 @@ lwt_yield(lwt_t next)
         return 0;
 }
 
-void *
+inline void *
 lwt_join(lwt_t child)
 {
         lwt_node_t curr = lwt_current();
-        if (child->parent != curr->data) {
+        if (unlikely(child->parent != curr->data)) {
                 printf("can only join by parent !!!\n");
                 return NULL;
         }
@@ -185,7 +187,7 @@ lwt_join(lwt_t child)
         return ret;
 }
 
-void
+inline void
 lwt_die(void *ret)
 {
         lwt_node_t curr = lwt_current();
@@ -200,19 +202,9 @@ lwt_die(void *ret)
 
         return;
 }
+
 inline unsigned long
-lwt_id(lwt_t thd)
-{
-        return thd->id;
-}
-
-inline lwt_node_t
-lwt_current(void)
-{
-        return active_thread;
-}
-
-inline unsigned long lwt_info(lwt_info_t type)
+lwt_info(lwt_info_t type)
 {
         unsigned long ret;
         switch (type)
