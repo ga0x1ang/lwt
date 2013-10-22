@@ -8,10 +8,7 @@
 #define STACK_SIZE      16 * 1024
 #define LWT_NULL        NULL
 
-#define lwt_id(x)       x->id
-#define lwt_current()   active_thread
-
-extern unsigned long id_counter;
+extern volatile unsigned long id_counter;
 
 typedef void *(*lwt_fn_t)(void *);
 typedef void *lwt_ret;
@@ -37,13 +34,12 @@ typedef struct lwt {
         void *ret;
 } __attribute__((aligned(4),packed)) *lwt_t; 
 
-extern lwt_t active_thread;
-
 typedef struct lwt_queue {
         lwt_t head;
         lwt_t tail;
 } __attribute__((aligned(4),packed)) *lwt_queue_t;
 extern lwt_queue_t run_queue;
+
 
 /* run queue operation functions */ 
 inline void       lwt_enqueue(lwt_t node);
@@ -54,7 +50,8 @@ inline lwt_t      lwt_create(lwt_fn_t fn, void *data);
 inline int        lwt_yield(lwt_t);
 inline lwt_ret    lwt_join(lwt_t);
 inline void       lwt_die(void *ret);
-
+inline unsigned long lwt_id(lwt_t lwt);
 inline unsigned long lwt_info(lwt_info_t type);
+inline lwt_t lwt_current(void);
 
 #endif

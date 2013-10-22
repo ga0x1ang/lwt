@@ -11,9 +11,9 @@
 extern void __lwt_trampoline(void);
 
 lwt_queue_t run_queue;
-lwt_t active_thread;
-unsigned long id_counter;
-unsigned long n_runnable, n_blocked, n_zombies;
+static volatile lwt_t active_thread;
+volatile unsigned long id_counter;
+static volatile unsigned long n_runnable, n_blocked, n_zombies;
 
 __attribute__((constructor)) static void
 lwt_init(void)
@@ -86,7 +86,7 @@ lwt_dequeue()
         if (likely(run_queue->head != NULL)) {
                 node = run_queue->head;
                 run_queue->head = node->next;
-                if (run_queue->tail == node) run_queue->tail = NULL;
+                if (unlikely(run_queue->tail == node)) run_queue->tail = NULL;
         }
         return node;
 }
@@ -216,4 +216,16 @@ lwt_info(lwt_info_t type)
         }
 
         return ret;
+}
+
+inline unsigned long
+lwt_id(lwt_t lwt)
+{
+        return lwt->id;
+}
+
+inline lwt_t
+lwt_current(void)
+{
+        return active_thread;
 }
