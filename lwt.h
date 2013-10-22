@@ -37,21 +37,17 @@ typedef struct lwt {
         void *ret;
 } __attribute__((aligned(4),packed)) *lwt_t; 
 
-typedef struct lwt_node {
-        lwt_t data;
-        struct lwt_node *next;
-} __attribute__((aligned(4),packed)) *lwt_node_t;
-extern lwt_node_t active_thread;
+extern lwt_t active_thread;
 
 typedef struct lwt_queue {
-        lwt_node_t head;
-        lwt_node_t tail;
+        lwt_t head;
+        lwt_t tail;
 } __attribute__((aligned(4),packed)) *lwt_queue_t;
 extern lwt_queue_t run_queue;
 
 /* run queue operation functions */ 
-inline void       lwt_enqueue(lwt_node_t node);
-inline lwt_node_t lwt_dequeue(void);
+inline void       lwt_enqueue(lwt_t node);
+inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
 inline lwt_t      lwt_create(lwt_fn_t fn, void *data);

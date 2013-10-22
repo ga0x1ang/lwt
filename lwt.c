@@ -11,7 +11,7 @@
 extern void __lwt_trampoline(void);
 
 lwt_queue_t run_queue;
-lwt_node_t active_thread;
+lwt_t active_thread;
 unsigned long id_counter;
 unsigned long n_runnable, n_blocked, n_zombies;
 
@@ -24,18 +24,14 @@ lwt_init(void)
         lwt_t master = malloc(sizeof(struct lwt));
         master->id = gen_id();
         master->state = RUNNABLE;
+        master->next = NULL;
+        master->parent = master;
         n_runnable++;
-
-        /* add current (must be master thread) to run queue */
-        /* TODO: enqueue should be in dispatch */
-        lwt_node_t master_node = malloc(sizeof(struct lwt_node));
-        master_node->data = master;
-        master_node->next = NULL;
 
         /* init the run queue */
         run_queue = malloc(sizeof(struct lwt_queue));
         run_queue->head = run_queue->tail = NULL;
-        active_thread = master_node;
+        active_thread = master;
 
         return;
 }
@@ -60,20 +56,20 @@ static inline void
 __lwt_schedule(void)
 {
         if (run_queue->head == NULL) return;
-        lwt_node_t next = lwt_dequeue();
-        lwt_node_t curr = lwt_current();
+        lwt_t next = lwt_dequeue();
+        lwt_t curr = lwt_current();
         curr->next = NULL;
-        if (curr->data->state != ZOMBIE) lwt_enqueue(curr);
-        printf("schedule from thread %lu to thread %lu\n", curr->data->id, next->data->id);
-        printf("curr->state is %d\n", curr->data->state);
+        if (curr->state != ZOMBIE) lwt_enqueue(curr);
+        printf("schedule from thread %lu to thread %lu\n", curr->id, next->id);
+        printf("curr->state is %d\n", curr->state);
         active_thread = next;
-        __lwt_dispatch(next->data, curr->data);
+        __lwt_dispatch(next, curr);
 
         return;
 }
 
 inline void
-lwt_enqueue(lwt_node_t node)
+lwt_enqueue(lwt_t node)
 {
         if (unlikely(run_queue->tail == NULL)) run_queue->head = run_queue->tail = node;
         else {
@@ -83,10 +79,10 @@ lwt_enqueue(lwt_node_t node)
         return;
 }
 
-inline lwt_node_t
+inline lwt_t 
 lwt_dequeue()
 {
-        lwt_node_t node = NULL;
+        lwt_t node = NULL;
         if (likely(run_queue->head != NULL)) {
                 node = run_queue->head;
                 run_queue->head = node->next;
@@ -105,13 +101,14 @@ lwt_create(lwt_fn_t fn, void *data)
         /* 2. set up the stack */
         /* stack bottom: data, fn, _trampoline, 0, 0, 0, 0, sp, bp, 0, 0 */
         thd->id = gen_id();
-        printf("thread %lu created thread %lu\n", lwt_current()->data->id, thd->id);
+        printf("thread %lu created thread %lu\n", lwt_current()->id, thd->id);
         thd->mem_space = malloc(STACK_SIZE);
         thd->sp = (unsigned long)thd->mem_space + STACK_SIZE;
         thd->ret = NULL;
         thd->state = RUNNABLE;
         n_runnable++;
-        thd->parent = lwt_current()->data;
+        thd->parent = lwt_current();
+        thd->next = NULL;
 
         /**
          * save current esp and switch to the stack we are going to construct 
@@ -136,10 +133,7 @@ lwt_create(lwt_fn_t fn, void *data)
                              : "esp");
 
         /* 3. add to run queue */
-        lwt_node_t node = malloc(sizeof(struct lwt_node));
-        node->data = thd;
-        node->next = NULL;
-        lwt_enqueue(node);
+        lwt_enqueue(thd);
 
         return thd;
 }
@@ -148,8 +142,8 @@ inline int
 lwt_yield(lwt_t next)
 {
         if (unlikely(next != LWT_NULL)) {
-                while (run_queue->head->data != next) {
-                        lwt_node_t requeue = lwt_dequeue();
+                while (run_queue->head!= next) {
+                        lwt_t requeue = lwt_dequeue();
                         lwt_enqueue(requeue);
                 }
                 __lwt_schedule();
@@ -161,24 +155,24 @@ lwt_yield(lwt_t next)
 inline void *
 lwt_join(lwt_t child)
 {
-        lwt_node_t curr = lwt_current();
-        if (unlikely(child->parent != curr->data)) {
+        lwt_t curr = lwt_current();
+        if (unlikely(child->parent != curr)) {
                 printf("can only join by parent !!!\n");
                 return NULL;
         }
-        curr->data->state = BLOCKED;
+        curr->state = BLOCKED;
         n_blocked++;
         n_runnable--;
         while (child->state != ZOMBIE) {
                 printf("waiting for thread %lu to finish ...\n", child->id);
                 __lwt_schedule();
         }
-        printf("%lu joined %lu\n", lwt_current()->data->id, child->id);
+        printf("%lu joined %lu\n", lwt_current()->id, child->id);
         void *ret = child->ret;
         free(child->mem_space);
         free(child);
 
-        curr->data->state = RUNNABLE;
+        curr->state = RUNNABLE;
         n_blocked--;
         n_runnable++;
         n_zombies--;
@@ -189,11 +183,11 @@ lwt_join(lwt_t child)
 inline void
 lwt_die(void *ret)
 {
-        lwt_node_t curr = lwt_current();
-        printf("thread %lu died\n", curr->data->id);
-        curr->data->ret = ret;
+        lwt_t curr = lwt_current();
+        printf("thread %lu died\n", curr->id);
+        curr->ret = ret;
 
-        curr->data->state = ZOMBIE;
+        curr->state = ZOMBIE;
         n_runnable--;
         n_zombies++;
 
