@@ -43,17 +43,16 @@ lwt_init(void)
 static inline void
 __lwt_dispatch(lwt_t next, lwt_t curr)
 {
-        __asm__ __volatile__("pushl $1f\n\t"
-                             "pushal\n\t"
-                             "movl %%esp, %0\n\t"
-                             "movl %1, %%esp\n\t"
-                             "popal\n\t"
-                             "ret\n\t"
-                             "1:\t"
-                             : "=m" (curr->sp)
-                             : "g" (next->sp)
-                             : "esp");
-
+        __asm__ ("pushl $1f\n\t"
+                 "pushal\n\t"
+                 "movl %%esp, %0\n\t"
+                 "movl %1, %%esp\n\t"
+                 "popal\n\t"
+                 "ret\n\t"
+                 "1:\t"
+                 : "=m" (curr->sp)
+                 : "g" (next->sp)
+                 : "esp");
         return;
 }
 
