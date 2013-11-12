@@ -1,8 +1,8 @@
-SOURCE= main.c lwt.c lwt.h lwt_tramp.S
+SOURCE= main.c lwt.c lwt.h lwt_tramp.S clist.c clist.h
 MYPROGRAM= lwt
 MYINCLUDES= ./
 CC= gcc
-CFLAGS= -O3 -m32
+CFLAGS= -O3 -march=native
 
 all: $(MYPROGRAM)
 

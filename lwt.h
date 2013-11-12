@@ -13,10 +13,15 @@ extern volatile unsigned long id_counter;
 typedef void *(*lwt_fn_t)(void *);
 typedef void *lwt_ret;
 
+
 typedef enum {
         LWT_INFO_NTHD_RUNNABLE,
         LWT_INFO_NTHD_BLOCKED,
-        LWT_INFO_NTHD_ZOMBIES
+        LWT_INFO_NTHD_ZOMBIES,
+        LWT_INFO_NTHD_NCHAN,
+        LWT_INFO_NTHD_NSNDING,
+        LWT_INFO_NTHD_NRCVING
+
 } lwt_info_t;
 
 typedef enum {
@@ -46,12 +51,44 @@ inline void       lwt_enqueue(lwt_t node);
 inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
-inline lwt_t      lwt_create(lwt_fn_t fn, void *data);
+inline lwt_t      lwt_create(lwt_fn_t fn, void *data, int unknown);
 inline int        lwt_yield(lwt_t);
 inline lwt_ret    lwt_join(lwt_t);
 inline void       lwt_die(void *ret);
 inline unsigned long lwt_id(lwt_t lwt);
 inline unsigned long lwt_info(lwt_info_t type);
 inline lwt_t lwt_current(void);
+
+struct lwt_channel {
+        /* sender's data */
+        void *snd_data;
+        int snd_cnt;  /* number of sending threads */
+        struct clist_head *snd_thds;  /* list of those threads */
+
+        /* receiver's data */
+        void *mark_data; /* arbitrary value receiver */
+        int rcv_blocked; /* if the receiver is blocked */ 
+        lwt_t rcv_thd; /* the receiver */
+};
+typedef struct lwt_channel *lwt_chan_t;
+
+/*typedef enum { A, B, C } chan_t;*/
+/*struct chan_data {*/
+        /*chan_t type;*/
+        /*union {*/
+                /*int a;*/
+                /*char str[16];*/
+                /*struct {*/
+                        /*int a, b, c;*/
+                /*} c; */
+        /*} u;*/
+/*};*/
+
+lwt_chan_t lwt_chan(int sz);
+void lwt_chan_deref(lwt_chan_t c);
+int lwt_snd(lwt_chan_t c, void *data);
+void *lwt_rcv(lwt_chan_t c);
+void lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
+lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
 #endif

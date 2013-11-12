@@ -1,10 +1,11 @@
-#include "lwt.h"
+#include <lwt.h>
+#include <clist.h>
 
 /*#define likely(x)       __builtin_expect((x),1)*/
 /*#define unlikely(x)     __builtin_expect((x),0)*/
 #define likely(x)       x
 #define unlikely(x)     x
-#define printf(...)  
+#define printd          
 
 #define gen_id()        ++id_counter
 
@@ -13,7 +14,7 @@ extern void __lwt_trampoline(void);
 lwt_queue_t run_queue;
 static volatile lwt_t active_thread;
 volatile unsigned long id_counter;
-static volatile unsigned long n_runnable, n_blocked, n_zombies;
+static volatile unsigned long n_runnable, n_blocked, n_zombies, n_chans, n_sndings, n_rcvings;
 
 __attribute__((constructor)) static void
 lwt_init(void)
@@ -60,8 +61,8 @@ __lwt_schedule(void)
         lwt_t curr = lwt_current();
         curr->next = NULL;
         if (curr->state != ZOMBIE) lwt_enqueue(curr);
-        printf("schedule from thread %lu to thread %lu\n", curr->id, next->id);
-        printf("curr->state is %d\n", curr->state);
+        printd("schedule from thread %lu to thread %lu\n", curr->id, next->id);
+        printd("curr->state is %d\n", curr->state);
         active_thread = next;
         __lwt_dispatch(next, curr);
 
@@ -93,7 +94,7 @@ lwt_dequeue()
 
 
 inline lwt_t
-lwt_create(lwt_fn_t fn, void *data)
+lwt_create(lwt_fn_t fn, void *data, int unknown)
 {
         /* 1. allocate memory for thread */
         lwt_t thd = malloc(sizeof(struct lwt));
@@ -101,7 +102,7 @@ lwt_create(lwt_fn_t fn, void *data)
         /* 2. set up the stack */
         /* stack bottom: data, fn, _trampoline, 0, 0, 0, 0, sp, bp, 0, 0 */
         thd->id = gen_id();
-        printf("thread %lu created thread %lu\n", lwt_current()->id, thd->id);
+        printd("thread %lu created thread %lu\n", lwt_current()->id, thd->id);
         thd->mem_space = malloc(STACK_SIZE);
         thd->sp = (unsigned long)thd->mem_space + STACK_SIZE;
         thd->ret = NULL;
@@ -157,17 +158,17 @@ lwt_join(lwt_t child)
 {
         lwt_t curr = lwt_current();
         if (unlikely(child->parent != curr)) {
-                printf("can only join by parent !!!\n");
+                printd("can only join by parent !!!\n");
                 return NULL;
         }
         curr->state = BLOCKED;
         n_blocked++;
         n_runnable--;
         while (child->state != ZOMBIE) {
-                printf("waiting for thread %lu to finish ...\n", child->id);
+                printd("waiting for thread %lu to finish ...\n", child->id);
                 __lwt_schedule();
         }
-        printf("%lu joined %lu\n", lwt_current()->id, child->id);
+        printd("%lu joined %lu\n", lwt_current()->id, child->id);
         void *ret = child->ret;
         free(child->mem_space);
         free(child);
@@ -184,7 +185,7 @@ inline void
 lwt_die(void *ret)
 {
         lwt_t curr = lwt_current();
-        printf("thread %lu died\n", curr->id);
+        printd("thread %lu died\n", curr->id);
         curr->ret = ret;
 
         curr->state = ZOMBIE;
@@ -211,6 +212,15 @@ lwt_info(lwt_info_t type)
                 case LWT_INFO_NTHD_ZOMBIES:
                         ret = n_zombies;
                         break;
+                case LWT_INFO_NTHD_NCHAN:
+                        ret = n_chans;
+                        break;
+                case LWT_INFO_NTHD_NSNDING:
+                        ret = n_sndings;
+                        break;
+                case LWT_INFO_NTHD_NRCVING:
+                        ret = n_rcvings;
+                        break;
                 default:
                         ret = 0;
         }
@@ -228,4 +238,102 @@ inline lwt_t
 lwt_current(void)
 {
         return active_thread;
+}
+
+lwt_chan_t
+lwt_chan(int sz)
+{
+        lwt_chan_t c = malloc(sizeof(struct lwt_channel));
+        c->snd_data = NULL;
+        c->snd_cnt = 0;
+        struct clist_head *cl = malloc(sizeof(struct clist_head));
+        clist_init(cl, 1000);
+        c->snd_thds = cl;
+        c->mark_data = NULL;
+        c->rcv_blocked = 0;
+        c->rcv_thd = lwt_current();
+
+        return c;
+}
+
+void
+lwt_chan_deref(lwt_chan_t c)
+{
+        if (!c->snd_cnt) {
+                c->snd_cnt--;
+                return;
+        }
+        clist_destroy(c->snd_thds);
+
+        return;
+}
+
+int
+lwt_snd(lwt_chan_t c, void *data)
+{
+        lwt_t curr = lwt_current();
+        if (c->rcv_blocked) {
+                printd("target is receving ... wait\n");
+                clist_add(c->snd_thds, curr);
+                printd("thread %lu send data, add itself to list %p\n", lwt_id(lwt_current()), c->snd_thds);
+                n_sndings++;
+                curr->state = BLOCKED;
+                lwt_yield(LWT_NULL);
+        }
+        c->snd_data = data;
+        c->rcv_blocked = 1;
+        c->rcv_thd->state = RUNNABLE;
+        lwt_yield(c->rcv_thd);
+
+        return 0; 
+}
+
+void*
+lwt_rcv(lwt_chan_t c)
+{
+        printd("thread %lu receive on %p\n", lwt_id(lwt_current()), c);
+        lwt_t curr = lwt_current();
+        lwt_t next_sndr;
+        while (!c->snd_data) {
+                next_sndr = clist_get(c->snd_thds);
+                if (!next_sndr) {
+                        printd("nothing to receive, wait\n");
+                        n_rcvings++;
+                        curr->state = BLOCKED;
+                        c->rcv_blocked = 0;
+                        lwt_yield(LWT_NULL);
+                        n_rcvings--;
+                        continue;
+                }
+                printd("wakeup a snd_thd\n");
+                assert(next_sndr);
+                next_sndr->state = RUNNABLE;
+                lwt_yield(LWT_NULL); /* o_O??? lwt_yield(next_sndr) */
+                printd("switched back\n");
+                assert(c->snd_data);
+        }
+        c->mark_data = c->snd_data;
+        assert(c->mark_data);
+        c->snd_data = NULL;
+        printd("chan %p: received data: %d\n", c, (int)c->mark_data);
+        c->rcv_blocked = 0;
+        return c->mark_data;
+}
+
+lwt_chan_t
+lwt_rcv_chan(lwt_chan_t c)
+{
+        lwt_chan_t rcv_chan = (lwt_chan_t)lwt_rcv(c);
+        assert(rcv_chan);
+        rcv_chan->snd_cnt++;
+        printd("thread %lu received channel %p\n", lwt_id(lwt_current()), rcv_chan);
+        return rcv_chan;
+}
+
+void
+lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending)
+{
+        printd("thread %lu sent channel %p\n", lwt_id(lwt_current()), sending);
+        lwt_snd(c, (void *)sending);
+        return;
 }
