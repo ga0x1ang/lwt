@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define STACK_SIZE      16 * 1024
+#define STACK_SIZE      (16*1024)
 #define LWT_NULL        NULL
 
 extern volatile unsigned long id_counter;
@@ -45,13 +45,12 @@ typedef struct lwt_queue {
 } __attribute__((aligned(4),packed)) *lwt_queue_t;
 extern lwt_queue_t run_queue;
 
-
 /* run queue operation functions */ 
 inline void       lwt_enqueue(lwt_t node);
 inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
-inline lwt_t      lwt_create(lwt_fn_t fn, void *data, int unknown);
+inline lwt_t      lwt_create(lwt_fn_t fn, void *data, int flags);
 inline int        lwt_yield(lwt_t);
 inline lwt_ret    lwt_join(lwt_t);
 inline void       lwt_die(void *ret);
@@ -90,5 +89,15 @@ int lwt_snd(lwt_chan_t c, void *data);
 void *lwt_rcv(lwt_chan_t c);
 void lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
+
+//typedef lwt_cgrp *lwt_cgrp_t;
+
+//lwt_cgrp_t lwt_cgrp(void);
+//int lwt_cgrp_free(lwt_cgrp_t);
+//int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
+//int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
+//lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
+//void lwt_chan_mark_set(lwt_cgrp_t, void *);
+//void *lwt_chan_mark_get(lwt_cgrp_t);
 
 #endif

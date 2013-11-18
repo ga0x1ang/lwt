@@ -274,7 +274,7 @@ lwt_snd(lwt_chan_t c, void *data)
         lwt_t curr = lwt_current();
         if (c->rcv_blocked) {
                 printd("target is receving ... wait\n");
-                clist_add(c->snd_thds, curr);
+                clist_add(c->snd_thds, (void *)curr);
                 printd("thread %lu send data, add itself to list %p\n", lwt_id(lwt_current()), c->snd_thds);
                 n_sndings++;
                 curr->state = BLOCKED;
