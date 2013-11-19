@@ -252,10 +252,13 @@ lwt_chan(int sz)
         c->mark_data = NULL;
         c->rcv_blocked = 0;
         c->rcv_thd = lwt_current();
-        
-        struct clist_head *msg_buf = malloc(sizeof(struct clist_head));
-        clist_init(msg_buf, sz);
-        c->msg_buf = msg_buf;
+        c->msg_buf = NULL;
+
+        if(sz) {
+                struct clist_head *msg_buf = malloc(sizeof(struct clist_head));
+                clist_init(msg_buf, sz);
+                c->msg_buf = msg_buf;
+        }
 
         return c;
 }
@@ -263,7 +266,8 @@ lwt_chan(int sz)
 void
 lwt_chan_deref(lwt_chan_t c)
 {
-        if (!(c->snd_cnt--)) clist_destroy(c->snd_thds);
+        if (c->snd_cnt) c->snd_cnt--;
+        if (c->snd_cnt == 0) clist_destroy(c->snd_thds);
 
         return;
 }
@@ -271,18 +275,30 @@ lwt_chan_deref(lwt_chan_t c)
 int
 lwt_snd(lwt_chan_t c, void *data)
 {
-        n_sndings++;
-        int buf_status = clist_add(c->msg_buf, data);
-        while (buf_status < 0) {
-                printd("message buffer is full!\n");
-                lwt_t curr = lwt_current();
-                clist_add(c->snd_thds, (void *)curr);
-                curr->state = BLOCKED;
-                c->rcv_thd->state = RUNNABLE; /* do we need this? */
-                lwt_yield(LWT_NULL); /* yield here or return something? */
-                buf_status = clist_add(c->msg_buf, data);
+        lwt_t curr = lwt_current();
+        if (c->msg_buf) {
+                int buf_status = clist_add(c->msg_buf, data);
+                while (buf_status < 0) {
+                        printd("message buffer is full!\n");
+                        curr->state = BLOCKED;
+                        n_sndings++;
+                        clist_add(c->snd_thds, (void *)curr);
+                        c->rcv_thd->state = RUNNABLE;
+                        lwt_yield(c->rcv_thd);
+                        buf_status = clist_add(c->msg_buf, data);
+                }
+        } else {
+                if (c->rcv_blocked) {
+                        clist_add(c->snd_thds, (void *)curr);
+                        n_sndings++;
+                        curr->state = BLOCKED;
+                        lwt_yield(LWT_NULL); /* yield here or return something? */
+                }
+                c->snd_data = data;
+                c->rcv_thd->state = RUNNABLE;
+                c->rcv_blocked = 1;
+                lwt_yield(LWT_NULL);
         }
-        c->rcv_thd->state = RUNNABLE;
         n_sndings--;
 
         return 0; 
@@ -291,22 +307,33 @@ lwt_snd(lwt_chan_t c, void *data)
 void*
 lwt_rcv(lwt_chan_t c)
 {
-        n_rcvings++;
-        void *ret = clist_get(c->msg_buf);
-        while (!ret) {
-                printd("message buffer is empty!\n");
-                lwt_t curr = lwt_current();
-                curr->state = BLOCKED;
-                c->rcv_blocked = 0;
-                lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
-                if (next_sndr) next_sndr->state = RUNNABLE;
-                lwt_yield(LWT_NULL);
+        void *ret = NULL;
+        lwt_t curr = lwt_current();
+        if (c->msg_buf) {
                 ret = clist_get(c->msg_buf);
-                if (ret) {
-                        curr->state = RUNNABLE;
+                while (!ret) {
+                        printd("message buffer is empty!\n");
+                        curr->state = BLOCKED;
+                        lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
+                        if (next_sndr) {
+                                printd("wakeup next_sndr in queue\n"); /* TODO: better wakeup all sndr */
+                                next_sndr->state = RUNNABLE;
+                        }
+                        lwt_yield(LWT_NULL);
+                        ret = clist_get(c->msg_buf);
                 }
+        } else {
+                while (!c->snd_data) {
+                        curr->state = BLOCKED;
+                        n_rcvings++;
+                        lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
+                        if (next_sndr) next_sndr->state = RUNNABLE;
+                        lwt_yield(LWT_NULL);
+                        n_rcvings--;
+                }
+                ret = c->mark_data = c->snd_data;
+                c->snd_data = c->mark_data = NULL;
         }
-        n_rcvings--;
         return ret;
 }
 
@@ -314,8 +341,8 @@ lwt_chan_t
 lwt_rcv_chan(lwt_chan_t c)
 {
         lwt_chan_t rcv_chan = (lwt_chan_t)lwt_rcv(c);
-        assert(rcv_chan);
         rcv_chan->snd_cnt++;
+        assert(rcv_chan);
         printd("thread %lu received channel %p\n", lwt_id(lwt_current()), rcv_chan);
         return rcv_chan;
 }

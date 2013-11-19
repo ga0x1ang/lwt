@@ -35,5 +35,6 @@ clist_add(struct clist_head *list, void *data)
 int
 clist_destroy(struct clist_head *list)
 {
+        /*free(list);*/
         return 0;
 }

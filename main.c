@@ -262,7 +262,7 @@ test_multisend(int chsz)
 	t1 = lwt_create(fn_snder, &args[0], 0);
 	t2 = lwt_create(fn_snder, &args[1], 0);
 	for (i = 0 ; i < ITER*2 ; i++) {
-		//if (i % 5 == 0) lwt_yield(LWT_NULL);
+		/*if (i % 5 == 0) lwt_yield(LWT_NULL);*/
 		ret[i] = (int)lwt_rcv(c);
 		if (sndrcv_cnt > maxcnt) maxcnt = sndrcv_cnt;
 		sndrcv_cnt--;
@@ -298,7 +298,6 @@ fn_async_steam(void *data)
 	
 	for (i = 0 ; i < ITER ; i++) lwt_snd(to, (void*)(i+1));
 	lwt_chan_deref(to);
-	printf("fn_async_steam done!\n");
 	
 	return NULL;
 }
