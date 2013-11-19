@@ -247,11 +247,15 @@ lwt_chan(int sz)
         c->snd_data = NULL;
         c->snd_cnt = 0;
         struct clist_head *cl = malloc(sizeof(struct clist_head));
-        clist_init(cl, 1000);
+        clist_init(cl, CHAN_SND_QUEUE_SZ);
         c->snd_thds = cl;
         c->mark_data = NULL;
         c->rcv_blocked = 0;
         c->rcv_thd = lwt_current();
+        
+        struct clist_head *msg_buf = malloc(sizeof(struct clist_head));
+        clist_init(msg_buf, sz);
+        c->msg_buf = msg_buf;
 
         return c;
 }
@@ -259,11 +263,7 @@ lwt_chan(int sz)
 void
 lwt_chan_deref(lwt_chan_t c)
 {
-        if (!c->snd_cnt) {
-                c->snd_cnt--;
-                return;
-        }
-        clist_destroy(c->snd_thds);
+        if (!(c->snd_cnt--)) clist_destroy(c->snd_thds);
 
         return;
 }
@@ -271,19 +271,19 @@ lwt_chan_deref(lwt_chan_t c)
 int
 lwt_snd(lwt_chan_t c, void *data)
 {
-        lwt_t curr = lwt_current();
-        if (c->rcv_blocked) {
-                printd("target is receving ... wait\n");
+        n_sndings++;
+        int buf_status = clist_add(c->msg_buf, data);
+        while (buf_status < 0) {
+                printd("message buffer is full!\n");
+                lwt_t curr = lwt_current();
                 clist_add(c->snd_thds, (void *)curr);
-                printd("thread %lu send data, add itself to list %p\n", lwt_id(lwt_current()), c->snd_thds);
-                n_sndings++;
                 curr->state = BLOCKED;
-                lwt_yield(LWT_NULL);
+                c->rcv_thd->state = RUNNABLE; /* do we need this? */
+                lwt_yield(LWT_NULL); /* yield here or return something? */
+                buf_status = clist_add(c->msg_buf, data);
         }
-        c->snd_data = data;
-        c->rcv_blocked = 1;
         c->rcv_thd->state = RUNNABLE;
-        lwt_yield(c->rcv_thd);
+        n_sndings--;
 
         return 0; 
 }
@@ -291,33 +291,23 @@ lwt_snd(lwt_chan_t c, void *data)
 void*
 lwt_rcv(lwt_chan_t c)
 {
-        printd("thread %lu receive on %p\n", lwt_id(lwt_current()), c);
-        lwt_t curr = lwt_current();
-        lwt_t next_sndr;
-        while (!c->snd_data) {
-                next_sndr = clist_get(c->snd_thds);
-                if (!next_sndr) {
-                        printd("nothing to receive, wait\n");
-                        n_rcvings++;
-                        curr->state = BLOCKED;
-                        c->rcv_blocked = 0;
-                        lwt_yield(LWT_NULL);
-                        n_rcvings--;
-                        continue;
+        n_rcvings++;
+        void *ret = clist_get(c->msg_buf);
+        while (!ret) {
+                printd("message buffer is empty!\n");
+                lwt_t curr = lwt_current();
+                curr->state = BLOCKED;
+                c->rcv_blocked = 0;
+                lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
+                if (next_sndr) next_sndr->state = RUNNABLE;
+                lwt_yield(LWT_NULL);
+                ret = clist_get(c->msg_buf);
+                if (ret) {
+                        curr->state = RUNNABLE;
                 }
-                printd("wakeup a snd_thd\n");
-                assert(next_sndr);
-                next_sndr->state = RUNNABLE;
-                lwt_yield(LWT_NULL); /* o_O??? lwt_yield(next_sndr) */
-                printd("switched back\n");
-                assert(c->snd_data);
         }
-        c->mark_data = c->snd_data;
-        assert(c->mark_data);
-        c->snd_data = NULL;
-        printd("chan %p: received data: %d\n", c, (int)c->mark_data);
-        c->rcv_blocked = 0;
-        return c->mark_data;
+        n_rcvings--;
+        return ret;
 }
 
 lwt_chan_t
@@ -335,5 +325,53 @@ lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending)
 {
         printd("thread %lu sent channel %p\n", lwt_id(lwt_current()), sending);
         lwt_snd(c, (void *)sending);
+        return;
+}
+
+lwt_cgrp_t
+lwt_cgrp(void)
+{
+        return NULL;
+}
+
+int
+lwt_cgrp_free(lwt_cgrp_t cgrp)
+{
+        return 0;
+}
+
+int
+lwt_cgrp_add(lwt_cgrp_t cgrp, lwt_chan_t c)
+{
+        return 0;
+}
+
+int
+lwt_cgrp_rem(lwt_cgrp_t cgrp, lwt_chan_t c)
+{
+        return 0;
+}
+
+lwt_chan_t
+lwt_cgrp_wait(lwt_cgrp_t cgrp)
+{
+        return NULL;
+}
+
+void
+lwt_chan_mark_set(lwt_chan_t c, void *flag)
+{
+        return;
+}
+
+void*
+lwt_chan_mark_get(lwt_chan_t c)
+{
+        return NULL;
+}
+
+void
+lwt_chan_grant(lwt_chan_t c)
+{
         return;
 }

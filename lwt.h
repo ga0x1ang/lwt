@@ -5,8 +5,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define STACK_SIZE      (16*1024)
-#define LWT_NULL        NULL
+#define STACK_SIZE         (16*1024)
+#define LWT_NULL           NULL
+#define CHAN_SND_QUEUE_SZ  1024
 
 extern volatile unsigned long id_counter;
 
@@ -68,6 +69,8 @@ struct lwt_channel {
         void *mark_data; /* arbitrary value receiver */
         int rcv_blocked; /* if the receiver is blocked */ 
         lwt_t rcv_thd; /* the receiver */
+
+        struct clist_head *msg_buf;
 };
 typedef struct lwt_channel *lwt_chan_t;
 
@@ -90,14 +93,18 @@ void *lwt_rcv(lwt_chan_t c);
 void lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
-//typedef lwt_cgrp *lwt_cgrp_t;
+struct lwt_cgrp {
+        struct clist_head *chans;
+};
+typedef struct lwt_cgrp *lwt_cgrp_t;
 
-//lwt_cgrp_t lwt_cgrp(void);
-//int lwt_cgrp_free(lwt_cgrp_t);
-//int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
-//int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
-//lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
-//void lwt_chan_mark_set(lwt_cgrp_t, void *);
-//void *lwt_chan_mark_get(lwt_cgrp_t);
+lwt_cgrp_t lwt_cgrp(void);
+int lwt_cgrp_free(lwt_cgrp_t);
+int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
+int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
+lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
+void lwt_chan_mark_set(lwt_chan_t, void *);
+void *lwt_chan_mark_get(lwt_chan_t);
+void lwt_chan_grant(lwt_chan_t);   /* what's this used for ??? */ 
 
 #endif

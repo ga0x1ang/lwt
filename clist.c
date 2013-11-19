@@ -6,7 +6,7 @@ clist_init(struct clist_head *list, int size)
         list->size = size + 1;
         list->start = 0;
         list->end = 0;
-        list->data = malloc(size * sizeof(lwt_t));
+        list->data = malloc(size * sizeof(void *));
 
         return 0;
 }
@@ -14,20 +14,22 @@ clist_init(struct clist_head *list, int size)
 void *
 clist_get(struct clist_head *list)
 {
-        void *ret = NULL;
-        ret = list->data[list->start];
+        if (list->end == list->start) return NULL;
+        void *ret = list->data[list->start];
         list->start = (list->start + 1) % list->size;
 
         return ret;
 }
 
-void
+int
 clist_add(struct clist_head *list, void *data)
 {
+        int new_end = (list->end + 1) % list->size;
+        if (new_end == list->start) return -1; /* if ring buffer is full */
         list->data[list->end] = data;
-        list->end = (list->end + 1) % list->size;
+        list->end = new_end;
 
-        return;
+        return 0;
 }
 
 int
