@@ -109,6 +109,6 @@ int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
 lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
 void lwt_chan_mark_set(lwt_chan_t, void *);
 void *lwt_chan_mark_get(lwt_chan_t);
-void lwt_chan_grant(lwt_chan_t);   /* what's this used for ??? */ 
+void lwt_chan_grant(lwt_chan_t);   /* TODO: USE TO PASS A CHAN TO CHILD (SIBLING COMMUNICATION) */ 
 
 #endif

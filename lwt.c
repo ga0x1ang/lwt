@@ -175,8 +175,8 @@ lwt_join(lwt_t child)
         }
         printd("%lu joined %lu\n", lwt_current()->id, child->id);
         void *ret = child->ret;
-        /*free(child->mem_space);*/ /*TODO: CHAOS */ 
-        /*free(child);*/
+        free(child->mem_space);
+        free(child);
 
         curr->state = RUNNABLE;
         n_blocked--;
