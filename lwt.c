@@ -94,7 +94,7 @@ lwt_dequeue()
 
 
 inline lwt_t
-lwt_create(lwt_fn_t fn, void *data, int unknown)
+lwt_create(lwt_fn_t fn, void *data, flags_t flags)
 {
         /* 1. allocate memory for thread */
         lwt_t thd = malloc(sizeof(struct lwt));
@@ -110,6 +110,7 @@ lwt_create(lwt_fn_t fn, void *data, int unknown)
         n_runnable++;
         thd->parent = lwt_current();
         thd->next = NULL;
+        thd->flags = flags;
 
         /**
          * save current esp and switch to the stack we are going to construct 
@@ -156,6 +157,10 @@ lwt_yield(lwt_t next)
 inline void *
 lwt_join(lwt_t child)
 {
+        /*if (child->flags & LWT_NOJOIN) {*/
+                /*assert(0);*/
+                /*return NULL;*/
+        /*}*/
         lwt_t curr = lwt_current();
         if (unlikely(child->parent != curr)) {
                 printd("can only join by parent !!!\n");
@@ -170,8 +175,8 @@ lwt_join(lwt_t child)
         }
         printd("%lu joined %lu\n", lwt_current()->id, child->id);
         void *ret = child->ret;
-        free(child->mem_space);
-        free(child);
+        /*free(child->mem_space);*/ /*TODO: CHAOS */ 
+        /*free(child);*/
 
         curr->state = RUNNABLE;
         n_blocked--;
@@ -186,6 +191,7 @@ lwt_die(void *ret)
 {
         lwt_t curr = lwt_current();
         printd("thread %lu died\n", curr->id);
+        if (curr->flags & LWT_NOJOIN) return; /* TODO: how? */ 
         curr->ret = ret;
 
         curr->state = ZOMBIE;
@@ -276,6 +282,17 @@ int
 lwt_snd(lwt_chan_t c, void *data)
 {
         lwt_t curr = lwt_current();
+                if (c->cgrp) {
+                        if (!c->cgrp->tail)
+                                c->cgrp->head = c->cgrp->tail = c;
+                        // c->cgrp->head->next = c? tail?
+                        else {
+                                c->cgrp->tail->next = c;
+                                c->cgrp->tail = c;
+                        }
+                        curr->state = BLOCKED;
+                        lwt_yield(LWT_NULL);
+                }
         if (c->msg_buf) {
                 int buf_status = clist_add(c->msg_buf, data);
                 while (buf_status < 0) {
@@ -292,7 +309,7 @@ lwt_snd(lwt_chan_t c, void *data)
                         clist_add(c->snd_thds, (void *)curr);
                         n_sndings++;
                         curr->state = BLOCKED;
-                        lwt_yield(LWT_NULL); /* yield here or return something? */
+                        lwt_yield(LWT_NULL);
                 }
                 c->snd_data = data;
                 c->rcv_thd->state = RUNNABLE;
@@ -358,43 +375,76 @@ lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending)
 lwt_cgrp_t
 lwt_cgrp(void)
 {
-        return NULL;
+        lwt_cgrp_t cgrp = malloc(sizeof(struct lwt_cgrp));
+        cgrp->rcv_thd = lwt_current();
+        cgrp->chncnt = 0;
+        cgrp->head = cgrp->tail = NULL;
+
+        return cgrp;
 }
 
 int
 lwt_cgrp_free(lwt_cgrp_t cgrp)
 {
+        if (cgrp->chncnt) return -1;
+        /*free(cgrp);*/
         return 0;
 }
 
 int
 lwt_cgrp_add(lwt_cgrp_t cgrp, lwt_chan_t c)
 {
+        c->cgrp = cgrp;
+        c->rcv_thd = cgrp->rcv_thd;
+        if (!cgrp->head) cgrp->head = cgrp->tail = c;
+        else {
+                cgrp->tail->next = c;
+                cgrp->tail = c;
+        }
+        cgrp->chncnt++;
+
         return 0;
 }
 
 int
 lwt_cgrp_rem(lwt_cgrp_t cgrp, lwt_chan_t c)
 {
+        c->cgrp = NULL;
+        c->rcv_thd = NULL;
+        cgrp->chncnt--;
+
         return 0;
 }
 
 lwt_chan_t
 lwt_cgrp_wait(lwt_cgrp_t cgrp)
 {
-        return NULL;
+        lwt_t curr = lwt_current();
+        if (cgrp->rcv_thd != curr) return NULL;
+
+        while (!cgrp->head) {
+                curr->state = BLOCKED;
+                lwt_yield(LWT_NULL);
+        }
+
+        lwt_chan_t ret = cgrp->head; /* TODO: pack this into functions */ 
+        if (cgrp->head == cgrp->tail) cgrp->head = cgrp->tail = NULL; /* this sucks ... */ 
+        else cgrp->head = cgrp->head->next;
+
+        return ret;
 }
 
 void
 lwt_chan_mark_set(lwt_chan_t c, void *flag)
 {
+        c->flag = flag;
         return;
 }
 
 void*
 lwt_chan_mark_get(lwt_chan_t c)
 {
-        return NULL;
+        return c->flag;
 }
 
 void

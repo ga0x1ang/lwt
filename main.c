@@ -376,7 +376,6 @@ test_grpwait(int chsz, int grpsz)
 	for (i = 0 ; i < ((ITER * grpsz)-(grpsz*chsz)) ; i++) {
 		lwt_chan_t c;
 		int r;
-
 		c = lwt_cgrp_wait(g);
 		assert(c);
 		r = (int)lwt_rcv(c);
@@ -401,8 +400,8 @@ main(void)
 	test_multisend(0);
 	test_perf_async_steam(ITER/10 < 100 ? ITER/10 : 100);
 	test_multisend(ITER/10 < 100 ? ITER/10 : 100);
-	/*test_grpwait(0, 3);*/
-	/*test_grpwait(3, 3);*/
+	test_grpwait(0, 3);
+	test_grpwait(3, 3);
 
 	return 0;
 }

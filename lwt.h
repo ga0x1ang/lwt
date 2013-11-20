@@ -31,6 +31,12 @@ typedef enum {
         ZOMBIE
 } lwt_state;
 
+#define LWT_NOJOIN         1
+typedef enum {
+        DEFAULT,
+        NOJOIN 
+} flags_t;
+
 typedef struct lwt {
         void *mem_space;
         unsigned long id, sp;
@@ -38,6 +44,7 @@ typedef struct lwt {
         struct lwt *parent;
         struct lwt *next;
         void *ret;
+        flags_t flags;
 } __attribute__((aligned(4),packed)) *lwt_t; 
 
 typedef struct lwt_queue {
@@ -51,13 +58,14 @@ inline void       lwt_enqueue(lwt_t node);
 inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
-inline lwt_t      lwt_create(lwt_fn_t fn, void *data, int flags);
+inline lwt_t      lwt_create(lwt_fn_t fn, void *data, flags_t flags);
 inline int        lwt_yield(lwt_t);
 inline lwt_ret    lwt_join(lwt_t);
 inline void       lwt_die(void *ret);
 inline unsigned long lwt_id(lwt_t lwt);
 inline unsigned long lwt_info(lwt_info_t type);
 inline lwt_t lwt_current(void);
+
 
 struct lwt_channel {
         /* sender's data */
@@ -71,20 +79,20 @@ struct lwt_channel {
         lwt_t rcv_thd; /* the receiver */
 
         struct clist_head *msg_buf;
+        
+        struct lwt_cgrp *cgrp;
+        struct lwt_channel *next;
+        void *flag;
 };
 typedef struct lwt_channel *lwt_chan_t;
 
-/*typedef enum { A, B, C } chan_t;*/
-/*struct chan_data {*/
-        /*chan_t type;*/
-        /*union {*/
-                /*int a;*/
-                /*char str[16];*/
-                /*struct {*/
-                        /*int a, b, c;*/
-                /*} c; */
-        /*} u;*/
-/*};*/
+struct lwt_cgrp {
+        lwt_t rcv_thd;
+        lwt_chan_t head;
+        lwt_chan_t tail;
+        unsigned int chncnt;
+};
+typedef struct lwt_cgrp *lwt_cgrp_t;
 
 lwt_chan_t lwt_chan(int sz);
 void lwt_chan_deref(lwt_chan_t c);
@@ -93,10 +101,6 @@ void *lwt_rcv(lwt_chan_t c);
 void lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
-struct lwt_cgrp {
-        struct clist_head *chans;
-};
-typedef struct lwt_cgrp *lwt_cgrp_t;
 
 lwt_cgrp_t lwt_cgrp(void);
 int lwt_cgrp_free(lwt_cgrp_t);
