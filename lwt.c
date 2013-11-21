@@ -321,35 +321,43 @@ lwt_snd(lwt_chan_t c, void *data)
         return 0; 
 }
 
+static inline void
+__lwt_rcv_block(lwt_chan_t c)
+{
+        lwt_t curr = lwt_current();
+        curr->state = BLOCKED;
+        n_rcvings++;
+        lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
+        if (next_sndr) next_sndr->state = RUNNABLE;
+        lwt_yield(LWT_NULL);
+        n_rcvings--;
+
+        return;
+}
+
+
+static inline void *
+__lwt_rcv_get_data(lwt_chan_t c)
+{
+        void *ret = NULL;
+
+        if (c->msg_buf) return clist_get(c->msg_buf);
+        else {
+                ret = c->snd_data;
+                c->snd_data = NULL;
+        }
+
+        return ret;
+}
+
 void*
 lwt_rcv(lwt_chan_t c)
 {
         void *ret = NULL;
-        lwt_t curr = lwt_current();
-        if (c->msg_buf) {
-                ret = clist_get(c->msg_buf);
-                while (!ret) {
-                        printd("message buffer is empty!\n");
-                        curr->state = BLOCKED;
-                        lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
-                        if (next_sndr) {
-                                printd("wakeup next_sndr in queue\n"); /* TODO: better wakeup all sndr */
-                                next_sndr->state = RUNNABLE;
-                        }
-                        lwt_yield(LWT_NULL);
-                        ret = clist_get(c->msg_buf);
-                }
-        } else {
-                while (!c->snd_data) {
-                        curr->state = BLOCKED;
-                        n_rcvings++;
-                        lwt_t next_sndr = (lwt_t)clist_get(c->snd_thds); /* is there queued snd_thds? */
-                        if (next_sndr) next_sndr->state = RUNNABLE;
-                        lwt_yield(LWT_NULL);
-                        n_rcvings--;
-                }
-                ret = c->mark_data = c->snd_data;
-                c->snd_data = c->mark_data = NULL;
+        ret = __lwt_rcv_get_data(c);
+        while (!ret) {
+                __lwt_rcv_block(c);
+                ret = __lwt_rcv_get_data(c);
         }
         return ret;
 }
@@ -387,7 +395,7 @@ int
 lwt_cgrp_free(lwt_cgrp_t cgrp)
 {
         if (cgrp->chncnt) return -1;
-        /*free(cgrp);*/
+        free(cgrp);
         return 0;
 }
 

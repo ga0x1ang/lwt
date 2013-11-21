@@ -66,7 +66,6 @@ inline unsigned long lwt_id(lwt_t lwt);
 inline unsigned long lwt_info(lwt_info_t type);
 inline lwt_t lwt_current(void);
 
-
 struct lwt_channel {
         /* sender's data */
         void *snd_data;
