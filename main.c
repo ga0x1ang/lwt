@@ -362,7 +362,7 @@ test_grpwait(int chsz, int grpsz)
 		lwt_chan_grant(cs[i]);
 		ts[i] = lwt_create(fn_grpwait, cs[i], 0);
 		lwt_chan_mark_set(cs[i], (void*)lwt_id(ts[i]));
-		lwt_cgrp_add(g, cs[i]);
+		lwt_cgrp_add(g, cs[i], LWT_CHAN_RCV);
 	}
 	assert(lwt_cgrp_free(g) == -1);
 	/**
@@ -376,8 +376,10 @@ test_grpwait(int chsz, int grpsz)
 	for (i = 0 ; i < ((ITER * grpsz)-(grpsz*chsz)) ; i++) {
 		lwt_chan_t c;
 		int r;
-		c = lwt_cgrp_wait(g);
+		lwt_chan_dir_t direction;
+		c = lwt_cgrp_wait(g, &direction);
 		assert(c);
+		assert(direction == LWT_CHAN_RCV);
 		r = (int)lwt_rcv(c);
 		assert(r == (int)lwt_chan_mark_get(c));
 	}

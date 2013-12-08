@@ -259,6 +259,7 @@ lwt_chan(int sz)
         c->rcv_blocked = 0;
         c->rcv_thd = lwt_current();
         c->msg_buf = NULL;
+        c->cgrp = NULL;
 
         if(sz) {
                 struct clist_head *msg_buf = malloc(sizeof(struct clist_head));
@@ -282,17 +283,17 @@ int
 lwt_snd(lwt_chan_t c, void *data)
 {
         lwt_t curr = lwt_current();
-                if (c->cgrp) {
-                        if (!c->cgrp->tail)
-                                c->cgrp->head = c->cgrp->tail = c;
-                        // c->cgrp->head->next = c? tail?
-                        else {
-                                c->cgrp->tail->next = c;
-                                c->cgrp->tail = c;
-                        }
-                        curr->state = BLOCKED;
-                        lwt_yield(LWT_NULL);
+        if (c->cgrp) {
+                if (!c->cgrp->tail)
+                        c->cgrp->head = c->cgrp->tail = c;
+                // c->cgrp->head->next = c? tail?
+                else {
+                        c->cgrp->tail->next = c;
+                        c->cgrp->tail = c;
                 }
+                curr->state = BLOCKED;
+                lwt_yield(LWT_NULL);
+        }
         if (c->msg_buf) {
                 int buf_status = clist_add(c->msg_buf, data);
                 while (buf_status < 0) {
@@ -400,16 +401,25 @@ lwt_cgrp_free(lwt_cgrp_t cgrp)
 }
 
 int
-lwt_cgrp_add(lwt_cgrp_t cgrp, lwt_chan_t c)
+lwt_cgrp_add(lwt_cgrp_t cgrp, lwt_chan_t c, lwt_chan_dir_t direction)
 {
-        c->cgrp = cgrp;
-        c->rcv_thd = cgrp->rcv_thd;
-        if (!cgrp->head) cgrp->head = cgrp->tail = c;
-        else {
-                cgrp->tail->next = c;
-                cgrp->tail = c;
+        /* TODO: return -1 if we attempt to add the chan into more than one group for each sending and receiving */
+        if (direction == LWT_CHAN_RCV) {
+                c->cgrp = cgrp;
+                if (c->rcv_thd != cgrp->rcv_thd) return -1; /* if we are not the rcvr of the chan */ 
+                /*c->rcv_thd = cgrp->rcv_thd;*/
+                if (!cgrp->head) cgrp->head = cgrp->tail = c;
+                else {
+                        cgrp->tail->next = c;
+                        cgrp->tail = c;
+                }
+                cgrp->chncnt++;
+        } else if(direction == LWT_CHAN_SND) {
+                c->cgrp = cgrp;
+                clist_add(c->snd_thds, lwt_current());
+        } else {
+                assert(0);
         }
-        cgrp->chncnt++;
 
         return 0;
 }
@@ -425,7 +435,7 @@ lwt_cgrp_rem(lwt_cgrp_t cgrp, lwt_chan_t c)
 }
 
 lwt_chan_t
-lwt_cgrp_wait(lwt_cgrp_t cgrp)
+lwt_cgrp_wait(lwt_cgrp_t cgrp, lwt_chan_dir_t *direction)
 {
         lwt_t curr = lwt_current();
         if (cgrp->rcv_thd != curr) return NULL;
@@ -436,6 +446,10 @@ lwt_cgrp_wait(lwt_cgrp_t cgrp)
         }
 
         lwt_chan_t ret = cgrp->head; /* TODO: pack this into functions */ 
+        if (direction) {
+                if (ret->rcv_thd == lwt_current()) *direction = LWT_CHAN_RCV;
+                else *direction = LWT_CHAN_SND; /* TODO: should check whether curr is a sndr */ 
+        }
         if (cgrp->head == cgrp->tail) cgrp->head = cgrp->tail = NULL; /* this sucks ... */ 
         else cgrp->head = cgrp->head->next;
 

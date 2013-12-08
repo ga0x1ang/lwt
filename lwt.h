@@ -100,12 +100,16 @@ void *lwt_rcv(lwt_chan_t c);
 void lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
+typedef enum {
+        LWT_CHAN_SND,
+        LWT_CHAN_RCV
+} lwt_chan_dir_t;
 
 lwt_cgrp_t lwt_cgrp(void);
 int lwt_cgrp_free(lwt_cgrp_t);
-int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
+int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t, lwt_chan_dir_t direction);
 int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
-lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
+lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t, lwt_chan_dir_t *direction);
 void lwt_chan_mark_set(lwt_chan_t, void *);
 void *lwt_chan_mark_get(lwt_chan_t);
 void lwt_chan_grant(lwt_chan_t);   /* TODO: USE TO PASS A CHAN TO CHILD (SIBLING COMMUNICATION) */ 
