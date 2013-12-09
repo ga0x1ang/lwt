@@ -11,9 +11,7 @@
 
 extern volatile unsigned long id_counter;
 
-typedef void *(*lwt_fn_t)(void *);
 typedef void *lwt_ret;
-
 
 typedef enum {
         LWT_INFO_NTHD_RUNNABLE,
@@ -58,7 +56,6 @@ inline void       lwt_enqueue(lwt_t node);
 inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
-inline lwt_t      lwt_create(lwt_fn_t fn, void *data, flags_t flags);
 inline int        lwt_yield(lwt_t);
 inline lwt_ret    lwt_join(lwt_t);
 inline void       lwt_die(void *ret);
@@ -84,6 +81,7 @@ struct lwt_channel {
         void *flag;
 };
 typedef struct lwt_channel *lwt_chan_t;
+typedef void *(*lwt_fn_t)(void *data, lwt_chan_t c);
 
 struct lwt_cgrp {
         lwt_t rcv_thd;
@@ -113,5 +111,9 @@ lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t, lwt_chan_dir_t *direction);
 void lwt_chan_mark_set(lwt_chan_t, void *);
 void *lwt_chan_mark_get(lwt_chan_t);
 void lwt_chan_grant(lwt_chan_t);   /* TODO: USE TO PASS A CHAN TO CHILD (SIBLING COMMUNICATION) */ 
+
+void lwt_snd_cdeleg(lwt_chan_t c, lwt_chan_t delegating);
+lwt_chan_t lwt_rcv_cdeleg(lwt_chan_t c);
+inline lwt_t      lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c);
 
 #endif

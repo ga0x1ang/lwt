@@ -94,7 +94,7 @@ lwt_dequeue()
 
 
 inline lwt_t
-lwt_create(lwt_fn_t fn, void *data, flags_t flags)
+lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c)
 {
         /* 1. allocate memory for thread */
         lwt_t thd = malloc(sizeof(struct lwt));
@@ -112,6 +112,8 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags)
         thd->next = NULL;
         thd->flags = flags;
 
+        c->rcv_thd = thd;
+
         /**
          * save current esp and switch to the stack we are going to construct 
          */
@@ -121,6 +123,7 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags)
                              "pushl $__lwt_trampoline\n\t"
                              "movl %%esp, %1\n\t"
                              "pushl %3\n\t" /* eax and  ecx are used to store */
+                             "pushl %5\n\t"
                              "pushl %4\n\t" /* args passed to __lwt_start */
                              "pushl $0\n\t"
                              "pushl $0\n\t"
@@ -131,7 +134,7 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags)
                              "movl %%esp, %2\n\t"
                              "movl %0, %%esp"
                              : "=g" (current_sp), "=g" (restored_sp)
-                             : "m" (thd->sp), "g" (fn), "g" (data)
+                             : "m" (thd->sp), "g" (fn), "g" (data), "g" (c)
                              : "esp");
 
         /* 3. add to run queue */
@@ -473,4 +476,22 @@ void
 lwt_chan_grant(lwt_chan_t c)
 {
         return;
+}
+
+void
+lwt_snd_cdeleg(lwt_chan_t c, lwt_chan_t delegating)
+{
+        delegating->rcv_thd = c->rcv_thd;
+        lwt_snd(c, delegating);
+
+        return;
+}
+
+lwt_chan_t
+lwt_rcv_cdeleg(lwt_chan_t c)
+{
+        lwt_chan_t chan = lwt_rcv_chan(c);
+        chan->snd_cnt--;
+
+        return chan;
 }

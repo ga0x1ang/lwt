@@ -61,15 +61,18 @@ test_perf(void)
 	/* Performance tests */
 	rdtscll(start);
 	for (i = 0 ; i < ITER ; i++) {
-		chld1 = lwt_create(fn_null, NULL, 0);
+		lwt_chan_t c = lwt_chan(0);
+		chld1 = lwt_create(fn_null, NULL, 0, c);
 		lwt_join(chld1);
 	}
 	rdtscll(end);
 	printf("[PERF] %lld <- fork/join\n", (end-start)/ITER);
 	IS_RESET();
 
-	chld1 = lwt_create(fn_bounce, (void*)1, 0);
-	chld2 = lwt_create(fn_bounce, NULL, 0);
+	lwt_chan_t c1 = lwt_chan(0);
+	chld1 = lwt_create(fn_bounce, (void*)1, 0, c1);
+	lwt_chan_t c2 = lwt_chan(0);
+	chld2 = lwt_create(fn_bounce, NULL, 0, c2);
 	lwt_join(chld1);
 	lwt_join(chld2);
 	IS_RESET();
@@ -90,7 +93,8 @@ fn_nested_joins(void *d)
 		assert(lwt_info(LWT_INFO_NTHD_RUNNABLE) == 1);
 		lwt_die(NULL);
 	}
-	chld = lwt_create(fn_nested_joins, (void*)1, 0);
+	lwt_chan_t c = lwt_chan(0);
+	chld = lwt_create(fn_nested_joins, (void*)1, 0, c);
 	lwt_join(chld);
 }
 
@@ -133,29 +137,36 @@ test_crt_join_sched(void)
 	/* functional tests: scheduling */
 	lwt_yield(LWT_NULL);
 
-	chld1 = lwt_create(fn_sequence, (void*)1, 0);
-	chld2 = lwt_create(fn_sequence, (void*)2, 0);
+	lwt_chan_t c1 = lwt_chan(0);
+	chld1 = lwt_create(fn_sequence, (void*)1, 0, c1);
+	lwt_chan_t c2 = lwt_chan(0);
+	chld2 = lwt_create(fn_sequence, (void*)2, 0, c2);
 	lwt_join(chld2);
 	lwt_join(chld1);	
 	IS_RESET();
 
 	/* functional tests: join */
-	chld1 = lwt_create(fn_null, NULL, 0);
+	lwt_chan_t c3 = lwt_chan(0);
+	chld1 = lwt_create(fn_null, NULL, 0, c3);
 	lwt_join(chld1);
 	IS_RESET();
 
-	chld1 = lwt_create(fn_null, NULL, 0);
+	lwt_chan_t c4 = lwt_chan(0);
+	chld1 = lwt_create(fn_null, NULL, 0, c4);
 	lwt_yield(LWT_NULL);
 	lwt_join(chld1);
 	IS_RESET();
 
-	chld1 = lwt_create(fn_nested_joins, NULL, 0);
+	lwt_chan_t c5 = lwt_chan(0);
+	chld1 = lwt_create(fn_nested_joins, NULL, 0, c5);
 	lwt_join(chld1);
 	IS_RESET();
 
 	/* functional tests: join only from parents */
-	chld1 = lwt_create(fn_identity, (void*)0x37337, 0);
-	chld2 = lwt_create(fn_join, chld1, 0);
+	lwt_chan_t c6 = lwt_chan(0);
+	chld1 = lwt_create(fn_identity, (void*)0x37337, 0, c6);
+	lwt_chan_t c7 = lwt_chan(0);
+	chld2 = lwt_create(fn_join, chld1, 0, c7);
 	lwt_yield(LWT_NULL);
 	lwt_yield(LWT_NULL);
 	lwt_join(chld2);
@@ -163,12 +174,14 @@ test_crt_join_sched(void)
 	IS_RESET();
 
 	/* functional tests: passing data between threads */
-	chld1 = lwt_create(fn_identity, (void*)0x37337, 0);
+	lwt_chan_t c8 = lwt_chan(0);
+	chld1 = lwt_create(fn_identity, (void*)0x37337, 0, c8);
 	assert((void*)0x37337 == lwt_join(chld1));
 	IS_RESET();
 
 	/* functional tests: directed yield */
-	chld1 = lwt_create(fn_null, NULL, 0);
+	lwt_chan_t c9 = lwt_chan(0);
+	chld1 = lwt_create(fn_null, NULL, 0, c9);
 	lwt_yield(chld1);
 	assert(lwt_info(LWT_INFO_NTHD_ZOMBIES) == 1);
 	lwt_join(chld1);
@@ -206,7 +219,8 @@ test_perf_channels(int chsz)
 	from = lwt_chan(chsz);
 	assert(from);
 	lwt_chan_grant(from);
-	t    = lwt_create(fn_chan, from, 0);
+	lwt_chan_t c = lwt_chan(0);
+	t    = lwt_create(fn_chan, from, 0, c);
 	to   = lwt_rcv_chan(from);
 	assert(to->snd_cnt);
 	rdtscll(start);
@@ -326,7 +340,7 @@ test_perf_async_steam(int chsz)
 }
 
 void *
-fn_grpwait(void *d)
+fn_grpwait(void *d, lwt_chan_t c)
 {
 	lwt_chan_t c = d;
 	int i;
@@ -360,7 +374,8 @@ test_grpwait(int chsz, int grpsz)
 		cs[i] = lwt_chan(chsz);
 		assert(cs[i]);
 		lwt_chan_grant(cs[i]);
-		ts[i] = lwt_create(fn_grpwait, cs[i], 0);
+		lwt_chan_t c = lwt_chan(0);
+		ts[i] = lwt_create(fn_grpwait, cs[i], 0, c);
 		lwt_chan_mark_set(cs[i], (void*)lwt_id(ts[i]));
 		lwt_cgrp_add(g, cs[i], LWT_CHAN_RCV);
 	}
