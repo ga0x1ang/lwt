@@ -7,6 +7,8 @@
 #define unlikely(x)     x
 #define printd          
 
+__thread pthread_t *kthd;
+
 #define gen_id()        ++id_counter
 
 extern void __lwt_trampoline(void);
@@ -494,4 +496,32 @@ lwt_rcv_cdeleg(lwt_chan_t c)
         chan->snd_cnt--;
 
         return chan;
+}
+
+void *
+__fn_kthd_create(void *data)
+{
+        struct kthd_args kargs = *(struct kthd_args *)data;
+
+        lwt_fn_t fn = kargs.fn;
+        void *lwt_data = kargs.data;
+        lwt_chan_t c = kargs.c;
+
+        lwt_create(fn, lwt_data, NOJOIN, c);
+
+        return NULL;
+}
+
+int
+lwt_kthd_create(lwt_fn_t fn, void *data, lwt_chan_t c)
+{
+        pthread_t *thd = NULL;
+
+        struct kthd_args kargs;
+        kargs.fn = fn;
+        kargs.data = data;
+        kargs.c = c;
+
+        int ret = pthread_create(thd, NULL, __fn_kthd_create, (void *)&kargs);
+        return ret ? -1 : 0;
 }

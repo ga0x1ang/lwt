@@ -2,7 +2,7 @@ SOURCE= main.c lwt.c lwt.h lwt_tramp.S clist.c clist.h
 MYPROGRAM= lwt
 MYINCLUDES= ./
 CC= gcc
-CFLAGS= -ggdb3 -march=native
+CFLAGS= -ggdb3 -march=native -pthread
 
 all: $(MYPROGRAM)
 

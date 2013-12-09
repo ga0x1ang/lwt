@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <pthread.h>
+
+extern __thread pthread_t *kthd; /* may not be used */ 
 
 #define STACK_SIZE         (16*1024)
 #define LWT_NULL           NULL
@@ -116,4 +119,18 @@ void lwt_snd_cdeleg(lwt_chan_t c, lwt_chan_t delegating);
 lwt_chan_t lwt_rcv_cdeleg(lwt_chan_t c);
 inline lwt_t      lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c);
 
+int lwt_kthd_create(lwt_fn_t fn, void *data, lwt_chan_t c);
+
+struct ktcb {
+        pthread_t pthd;
+        lwt_t     lwt;
+};
+typedef struct ktcb *ktcb_t;
+
+struct kthd_args {
+        lwt_fn_t fn;
+        void *data;
+        lwt_chan_t c;
+};
+typedef struct kthd_args *kthd_args_t;
 #endif
