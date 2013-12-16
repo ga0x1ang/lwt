@@ -1,0 +1,53 @@
+#include <lwt.h>
+
+void *
+fn(void *data, lwt_chan_t c)
+{
+        /*char msg[255];*/
+        /*snprintf(255, "got chan %p", msg);*/
+        /*lwt_snd(c, (void *)msg);*/
+        sleep(1);
+        char *msg = (char *)lwt_rcv(c);
+        printf("%s\n", msg);
+
+        sleep(1);
+
+        lwt_chan_t rcv = lwt_rcv_cdeleg(c);
+        printf("delegated chan\n");
+
+        sleep(1);
+
+        lwt_chan_t to_parent = lwt_rcv_chan(rcv);
+        lwt_snd(to_parent, (void *)"data");
+
+        return NULL;
+}
+
+int
+main(void)
+{
+        void *data = (void *)"data";
+        lwt_chan_t snd = lwt_chan(1);
+        lwt_kthd_create(fn, data, snd);
+        sleep(1);
+
+        lwt_snd(snd, data);
+
+        lwt_chan_t to_child;
+        lwt_snd_cdeleg(snd, to_child);
+        sleep(1);
+
+        lwt_snd(to_child, (void *)"deleg test");
+        sleep(1);
+
+        lwt_chan_t rcv;
+        lwt_snd_chan(to_child, rcv);
+        sleep(1);
+
+        lwt_rcv(rcv);
+
+        /*char *msg = (char *)lwt_rcv(rcv);*/
+        /*printf("%s\n", msg);*/
+
+        return 0;
+}

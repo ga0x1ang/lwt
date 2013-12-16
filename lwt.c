@@ -1,18 +1,16 @@
 #include <lwt.h>
-#include <clist.h>
 
 /*#define likely(x)       __builtin_expect((x),1)*/
 /*#define unlikely(x)     __builtin_expect((x),0)*/
 #define likely(x)       x
 #define unlikely(x)     x
-#define printd          
-
-__thread pthread_t *kthd;
+#define printd          printf
 
 #define gen_id()        ++id_counter
 
 extern void __lwt_trampoline(void);
 
+__thread notification_queue;
 lwt_queue_t run_queue;
 static volatile lwt_t active_thread;
 volatile unsigned long id_counter;
@@ -64,7 +62,7 @@ __lwt_schedule(void)
         curr->next = NULL;
         if (curr->state != ZOMBIE) lwt_enqueue(curr);
         printd("schedule from thread %lu to thread %lu\n", curr->id, next->id);
-        printd("curr->state is %d\n", curr->state);
+        /*printd("curr->state is %d\n", curr->state);*/
         active_thread = next;
         __lwt_dispatch(next, curr);
 
@@ -94,7 +92,6 @@ lwt_dequeue()
         return node;
 }
 
-
 inline lwt_t
 lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c)
 {
@@ -113,7 +110,7 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c)
         thd->parent = lwt_current();
         thd->next = NULL;
         thd->flags = flags;
-
+        thd->kthd = pthread_self();
         c->rcv_thd = thd;
 
         /**
@@ -124,10 +121,9 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c)
                              "movl %2, %%esp\n\t" /* switch to new stack */
                              "pushl $__lwt_trampoline\n\t"
                              "movl %%esp, %1\n\t"
-                             "pushl %3\n\t" /* eax and  ecx are used to store */
-                             "pushl %5\n\t"
+                             "pushl %3\n\t" /* eax, ecx and edx are used to store */
                              "pushl %4\n\t" /* args passed to __lwt_start */
-                             "pushl $0\n\t"
+                             "pushl %5\n\t"
                              "pushl $0\n\t"
                              "pushl %1\n\t"
                              "pushl %2\n\t"
@@ -136,7 +132,7 @@ lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t c)
                              "movl %%esp, %2\n\t"
                              "movl %0, %%esp"
                              : "=g" (current_sp), "=g" (restored_sp)
-                             : "m" (thd->sp), "g" (fn), "g" (data), "g" (c)
+                             : "m" (thd->sp), "g" (fn), "g" (data), "m" (c)
                              : "esp");
 
         /* 3. add to run queue */
@@ -287,42 +283,47 @@ lwt_chan_deref(lwt_chan_t c)
 int
 lwt_snd(lwt_chan_t c, void *data)
 {
-        lwt_t curr = lwt_current();
-        if (c->cgrp) {
-                if (!c->cgrp->tail)
-                        c->cgrp->head = c->cgrp->tail = c;
-                // c->cgrp->head->next = c? tail?
-                else {
-                        c->cgrp->tail->next = c;
-                        c->cgrp->tail = c;
-                }
-                curr->state = BLOCKED;
-                lwt_yield(LWT_NULL);
-        }
-        if (c->msg_buf) {
-                int buf_status = clist_add(c->msg_buf, data);
-                while (buf_status < 0) {
-                        printd("message buffer is full!\n");
-                        curr->state = BLOCKED;
-                        n_sndings++;
-                        clist_add(c->snd_thds, (void *)curr);
-                        c->rcv_thd->state = RUNNABLE;
-                        lwt_yield(c->rcv_thd);
-                        buf_status = clist_add(c->msg_buf, data);
-                }
-        } else {
-                if (c->rcv_blocked) {
-                        clist_add(c->snd_thds, (void *)curr);
-                        n_sndings++;
+        /*if (pthread_equal(c->rcv_thd->kthd, pthread_self())) {*/
+                lwt_t curr = lwt_current();
+                if (c->cgrp) {
+                        if (!c->cgrp->tail)
+                                c->cgrp->head = c->cgrp->tail = c;
+                        // c->cgrp->head->next = c? tail?
+                        else {
+                                c->cgrp->tail->next = c;
+                                c->cgrp->tail = c;
+                        }
                         curr->state = BLOCKED;
                         lwt_yield(LWT_NULL);
                 }
-                c->snd_data = data;
-                c->rcv_thd->state = RUNNABLE;
-                c->rcv_blocked = 1;
-                lwt_yield(LWT_NULL);
-        }
-        n_sndings--;
+                if (c->msg_buf) {
+                        int buf_status = clist_add(c->msg_buf, data);
+                        while (buf_status < 0) {
+                                printd("message buffer is full!\n");
+                                curr->state = BLOCKED;
+                                n_sndings++;
+                                clist_add(c->snd_thds, (void *)curr);
+                                c->rcv_thd->state = RUNNABLE;
+                                lwt_yield(c->rcv_thd);
+                                buf_status = clist_add(c->msg_buf, data);
+                        }
+                } else {
+                        if (c->rcv_blocked) {
+                                clist_add(c->snd_thds, (void *)curr);
+                                n_sndings++;
+                                curr->state = BLOCKED;
+                                lwt_yield(LWT_NULL);
+                        }
+                        c->snd_data = data;
+                        c->rcv_thd->state = RUNNABLE;
+                        c->rcv_blocked = 1;
+                        lwt_yield(LWT_NULL);
+                }
+                n_sndings--;
+        /*} else {*/
+                /*assert(0);*/
+                 /*[>TODO: send to kthd, kthd send to global dest kthd<]*/
+        /*}*/
 
         return 0; 
 }
@@ -347,7 +348,7 @@ __lwt_rcv_get_data(lwt_chan_t c)
 {
         void *ret = NULL;
 
-        if (c->msg_buf) return clist_get(c->msg_buf);
+        if (c->msg_buf) ret = clist_get(c->msg_buf);
         else {
                 ret = c->snd_data;
                 c->snd_data = NULL;
@@ -360,11 +361,13 @@ void*
 lwt_rcv(lwt_chan_t c)
 {
         void *ret = NULL;
+
         ret = __lwt_rcv_get_data(c);
         while (!ret) {
                 __lwt_rcv_block(c);
                 ret = __lwt_rcv_get_data(c);
         }
+
         return ret;
 }
 
@@ -483,7 +486,9 @@ lwt_chan_grant(lwt_chan_t c)
 void
 lwt_snd_cdeleg(lwt_chan_t c, lwt_chan_t delegating)
 {
-        delegating->rcv_thd = c->rcv_thd;
+        /*assert(c);*/
+        /*assert(c->rcv_thd);*/
+        /*delegating->rcv_thd = c->rcv_thd;*/
         lwt_snd(c, delegating);
 
         return;
@@ -493,7 +498,8 @@ lwt_chan_t
 lwt_rcv_cdeleg(lwt_chan_t c)
 {
         lwt_chan_t chan = lwt_rcv_chan(c);
-        chan->snd_cnt--;
+        chan->rcv_thd = lwt_current();
+        chan->snd_cnt--; /* TODO: wrong */
 
         return chan;
 }
@@ -501,13 +507,16 @@ lwt_rcv_cdeleg(lwt_chan_t c)
 void *
 __fn_kthd_create(void *data)
 {
-        struct kthd_args kargs = *(struct kthd_args *)data;
 
-        lwt_fn_t fn = kargs.fn;
-        void *lwt_data = kargs.data;
-        lwt_chan_t c = kargs.c;
+        printf("kthd begin to run\n");
+        kthd_args_t kargs = (kthd_args_t)data;
 
-        lwt_create(fn, lwt_data, NOJOIN, c);
+        lwt_fn_t fn = kargs->fn;
+        void *lwt_data = kargs->data;
+        lwt_chan_t c = kargs->c;
+
+        lwt_t init_lwt = lwt_create(fn, lwt_data, NOJOIN, c);
+        lwt_yield(LWT_NULL);
 
         return NULL;
 }
@@ -515,13 +524,23 @@ __fn_kthd_create(void *data)
 int
 lwt_kthd_create(lwt_fn_t fn, void *data, lwt_chan_t c)
 {
-        pthread_t *thd = NULL;
+        pthread_t thd; 
+        pthread_attr_t thd_attr;
 
-        struct kthd_args kargs;
-        kargs.fn = fn;
-        kargs.data = data;
-        kargs.c = c;
+        /*struct kthd_args kargs;*/
+        /*kargs.fn = fn;*/
+        /*kargs.data = data;*/
+        /*kargs.c = c;*/
 
-        int ret = pthread_create(thd, NULL, __fn_kthd_create, (void *)&kargs);
+        kthd_args_t kargs = malloc(sizeof(struct kthd_args));
+        kargs->fn = fn;
+        kargs->data = data;
+        kargs->c = c;
+
+        pthread_attr_setdetachstate(&thd_attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_init(&thd_attr);
+
+        int ret = pthread_create(&thd, &thd_attr, __fn_kthd_create, (void *)kargs);
+
         return ret ? -1 : 0;
 }

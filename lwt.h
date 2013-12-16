@@ -4,9 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <clist.h>
 #include <pthread.h>
-
-extern __thread pthread_t *kthd; /* may not be used */ 
 
 #define STACK_SIZE         (16*1024)
 #define LWT_NULL           NULL
@@ -32,6 +31,12 @@ typedef enum {
         ZOMBIE
 } lwt_state;
 
+struct ktcb {
+        pthread_t pthd;
+        struct list_head *lwt_list;
+};
+typedef struct ktcb *ktcb_t;
+
 #define LWT_NOJOIN         1
 typedef enum {
         DEFAULT,
@@ -46,16 +51,18 @@ typedef struct lwt {
         struct lwt *next;
         void *ret;
         flags_t flags;
-} __attribute__((aligned(4),packed)) *lwt_t; 
+        pthread_t kthd;
+} *lwt_t; 
 
 typedef struct lwt_queue {
         lwt_t head;
         lwt_t tail;
-} __attribute__((aligned(4),packed)) *lwt_queue_t;
+} *lwt_queue_t;
+
 extern lwt_queue_t run_queue;
 
 /* run queue operation functions */ 
-inline void       lwt_enqueue(lwt_t node);
+inline void  lwt_enqueue(lwt_t node);
 inline lwt_t lwt_dequeue(void);
 
 /* api functions */ 
@@ -121,16 +128,31 @@ inline lwt_t      lwt_create(lwt_fn_t fn, void *data, flags_t flags, lwt_chan_t 
 
 int lwt_kthd_create(lwt_fn_t fn, void *data, lwt_chan_t c);
 
-struct ktcb {
-        pthread_t pthd;
-        lwt_t     lwt;
-};
-typedef struct ktcb *ktcb_t;
-
 struct kthd_args {
         lwt_fn_t fn;
         void *data;
         lwt_chan_t c;
 };
 typedef struct kthd_args *kthd_args_t;
+
+void kthd_snd(pthread_t *dest, void *data);
+void *kthd_rcv(pthread_t *src);
+
+//struct lwt_notification {
+        //pthread_t from;
+        //pthread_t to;
+        //void *data;
+//};
+
+typedef enum kthd_status_t {
+        NONE
+} kthd_status_t;
+
+typedef struct kthd {
+        pthread_t *pthd;
+        kthd_status_t status;
+        struct kthd *prev;
+        struct kthd *next;
+} *kthd_t;
+
 #endif

@@ -1,4 +1,6 @@
 #include <clist.h>
+#include <stdlib.h>
+#include <assert.h>
 
 int
 clist_init(struct clist_head *list, int size)
@@ -14,6 +16,7 @@ clist_init(struct clist_head *list, int size)
 void *
 clist_get(struct clist_head *list)
 {
+        assert(list);
         if (list->end == list->start) return NULL;
         void *ret = list->data[list->start];
         list->start = (list->start + 1) % list->size;
